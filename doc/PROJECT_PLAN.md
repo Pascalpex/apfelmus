@@ -1,4 +1,4 @@
-# Project Plan – Version 0.1 
+# Project Plan – Version 0.1
 
 ## 1. Goal and Definition of Done
 
@@ -7,15 +7,15 @@
 **The project is done when:**
 
 - a working demo carries real I2C transactions (read **and** write) over IEEE 1722 to **two different** I2C devices;
-- the traffic has been verified both on the network (Wireshark);
+- the traffic has been verified on the network (Wireshark);
 - the code can be built from the repository at any time (Linux), is documented and has tests;
-- the chosen operating mode, any deviations from the spec and our design decisions are documented and justified;
+- the chosen operating mode, any deviations from the spec and our design decisions are documented and justified.
 
 ## 2. Starting Point: What Exists, What Is Missing
 
 | Building block | Status | Source |
 |---|---|---|
-| `ACF_I2C` / `ACF_I2C_BRIEF` codec (get/set fields, validation) | exists | `include/avtp/acf/I2C.h`, `I2CBrief.h`  |
+| `ACF_I2C` / `ACF_I2C_BRIEF` codec (get/set fields, validation) | exists | `include/avtp/acf/I2C.h`, `I2CBrief.h` |
 | Unit tests for the codec | exists (10 tests) | `unit/test-i2c.c` |
 | NTSCF/TSCF headers, Ethernet and UDP sockets | exists | `include/avtp/acf/Ntscf.h`, `examples/common/` |
 | GBB/ABB codec (alternative recommended by the spec) | exists | `Gbb.h`, `Abb.h` |
@@ -29,89 +29,68 @@
 
 ## 3. Work Packages
 
-### WP0 – Organization (until Oct 20)
+### WP0 – Organization
 
-- Create repository, invite supervisors (done)
-- Project plan, system diagram, hardware list (this document)
-- Assign roles within the team
+- Repository, project plan, system overview, hardware list (done)
 
-### WP1 – Familiarization and Setup (CW 43–44)
+### WP1 – Familiarization and Setup
 
-- Read IEEE 1722: §4.1–4.3, §4.7, §9.1–9.4.1, **§9.4.16/17 (in depth)**, §9.4.14/15 + Annex M (skim)
-- Build Open1722 locally and run the unit tests (`cmake`, `libcmocka-dev`)
-- Run the `acf-can` example with a virtual CAN interface (`vcan`) and capture it in Wireshark, as a reference for our own example
-- Build Wireshark from source to get the full 1722 dissector (recommended in the course slides)
-- Clarify open questions D1/D3 with the supervisor
-- Order or borrow hardware
+- Study the relevant parts of IEEE 1722 and the Open1722 code base
+- Set up build environments (Linux, Zephyr) and run the existing examples
 
-### WP2 – Design (CW 44–45)
+### WP2 – Design
 
-- Derive **message sequences** for all required transaction types from Fig. 90: write, write with target NACK, read, write + repeated START + read
-- **State machines** for Controller Agent and Target Controller (including exception codes, Table 29)
-- Stream concept: 2 streams, stream IDs, MAC/UDP addressing
-- Define the application API, e.g. `i2c_remote_write()`, `i2c_remote_read()`, `i2c_remote_write_read()`
-- Timeout and error strategy (NACK, timeout, lost packets)
-- Deliverable: `docs/DESIGN.md`
+- Define the message flow and the behavior of both sides
+- Define the API for the application
+- Document the design in `doc/DESIGN.md`
 
-### WP3 – Implementation without Hardware (CW 45–47)
+### WP3 – Implementation
 
-Goal: development and testing can start **before the hardware is up and running**.
+- Controller side and target side
+- First tests without real hardware (simulated I2C device, loopback)
 
-- WP3a: **Target Controller** with a *simulated I2C device* (mock: register array in memory)
-- WP3b: **Controller Agent** + remote I2C API
-- WP3c: **Loopback test**: both sides on one machine (veth pair or UDP on localhost), automated, later part of CI
-- WP3d (optional, in parallel): PR to Open1722 adding constants for `i2c_code` and `exception_code`
+### WP4 – Hardware Bring-up
 
-### WP4 – Hardware Bring-up (CW 45–47, in parallel with WP3)
+- Nucleo board with Zephyr and network connection
+- Local access to both I2C devices
 
-- Set up the board (OS or Zephyr toolchain) and the network between laptop and board
-- Access both I2C devices locally on the board (`i2cdetect` or an I2C scanner, simple local read/write tests)
-- Investigate and prototype low-level access at the bus-event level (→ **risk R1**)
+### WP5 – Hardware Integration
 
-### WP5 – Integration on Real Hardware (CW 48–50)
+- End-to-end demo with both I2C devices
+- Verification of the network traffic with Wireshark
 
-- Replace the mock from WP3a with real I2C access
-- Device logic on the laptop: read the sensor (e.g. °C), write text to the OLED
-- End-to-end demo with **both** devices
-- Verification: Wireshark (network) and logic analyzer (bus) side by side
+### WP6 – Robustness and Evaluation
 
-**→ Milestone M3: demo running (target: before Christmas)**
+- Error handling
+- Latency measurements
+- Optional extensions
 
-### WP6 – Robustness and Measurements (CW 50–02)
+### WP7 – Wrap-up
 
-- Error cases: NACK (wrong address), bus timeout, sequence errors → exception codes
-- Latency measurement per transaction (real-time focus of the course) and analysis of influencing factors
-- *Optional:* lost message handling (§9.4.16.13)
-- *Optional:* comparison of `ACF_I2C` vs. `ACF_I2C_BRIEF` vs. ABB (packet count, latency)
+- Documentation and CI
+- Final report, presentation and live demo
+- Drect PR to Open-1722
 
-### WP7 – Wrap-up (CW 02–04)
+## 4. Timeline
 
-- Finalize README and build instructions, CI (build + unit + loopback tests)
-- Final report including AI usage disclosure
-- Prepare presentation and live demo
+Our main target is to **finish the hardware integration (WP5) before the Christmas break**. The remaining time until the end of the semester is reserved for WP6 and WP7.
 
-## 4. Dependencies
+## 5. Dependencies
 
 ```mermaid
 flowchart LR
     WP1["WP1<br/>Familiarization & setup"] --> WP2["WP2<br/>Design"]
-    WP1 --> HW["Hardware<br/>available"]
-    D["Decisions<br/>D1–D6"] --> WP2
-    WP2 --> WP3a["WP3a<br/>Target (mock)"]
-    WP2 --> WP3b["WP3b<br/>Controller + API"]
-    WP3a --> WP3c["WP3c<br/>Loopback test"]
-    WP3b --> WP3c
-    HW --> WP4["WP4<br/>HW bring-up"]
-    WP3c --> WP5["WP5<br/>HW integration<br/>(M3 demo)"]
+    WP2 --> WP3["WP3<br/>Implementation"]
+    WP1 --> WP4["WP4<br/>HW bring-up"]
+    WP3 --> WP5["WP5<br/>HW integration<br/>(before Christmas)"]
     WP4 --> WP5
-    WP5 --> WP6["WP6<br/>Robustness &<br/>measurements"]
+    WP5 --> WP6["WP6<br/>Robustness &<br/>evaluation"]
     WP6 --> WP7["WP7<br/>Wrap-up"]
 ```
 
-**Critical path:** WP1 → decisions → WP2 → WP3 → WP5. Hardware bring-up (WP4) runs in parallel and must not block WP5. This is why WP3 is first developed against a simulated device.
+WP3 (software) and WP4 (hardware) can run in parallel. Testing WP3 against a simulated I2C device first keeps the software work from being blocked by the hardware.
 
-
-## 5. Questions for the Supervisor
+## 6. Questions for the Supervisor
 
 1. Is the `ACF_I2C` format explicitly required, or is GBB/ABB (Annex M) also acceptable or even desired as a comparison?
 2. Is the integrated agent (Fig. 88) sufficient, or is the transparent bus interconnect with clock stretching (Fig. 87) expected?
