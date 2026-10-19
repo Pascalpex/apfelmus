@@ -26,7 +26,7 @@ flowchart LR
     NUC -- "I2C" --- S2
 ```
 
-An application on the laptop wants to access an I2C device, for example to read a sensor value or to write text to a display. Instead of using a local I2C bus, every I2C transaction is packed into IEEE 1722 `ACF_I2C` messages and sent over Ethernet to the Nucleo board. The board executes the transaction on its real I2C bus and sends the result (ACK/NACK, read data) back. To the application this looks like a local I2C access.
+An application on the laptop wants to access an I2C device, for example to read a sensor value or to write text to a display. Instead of using a local I2C bus, every I2C transaction is packed into IEEE 1722 `ACF_I2C` messages and sent over Ethernet to the Nucleo board. The board executes the transaction on its I2C bus and sends the result (ACK/NACK, read data) back. To the application this looks like a local I2C access.
 
 ### Background: I2C over a network in IEEE 1722
 
@@ -76,7 +76,7 @@ flowchart TB
 
 Here the Controller is connected directly to the network and generates the I2C request messages itself. There is no I2C bus on the controller side.
 
-Our planned setup corresponds to arrangement (b): the laptop is the Controller with integrated Target Agent, the Nucleo board is the Target Controller, and the sensor and display are Targets C and D.
+Our first planned setup corresponds to arrangement (b): the laptop is the Controller with integrated Target Agent, the Nucleo board is the Target Controller, and the sensor and display are Targets C and D.
 
 *Diagrams are based on IEEE Std 1722-2025, Figures 87 and 88.*
 
@@ -99,7 +99,7 @@ Our planned setup corresponds to arrangement (b): the laptop is the Controller w
 │   ├── target/          Target Controller (board)
 │   └── demo/            demo applications for the two devices
 ├── test/                unit and loopback tests
-└── AI_USAGE.md          disclosure of AI tool usage (required by the course)
+└── AI_USAGE.md          
 ```
 
 ---

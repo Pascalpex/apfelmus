@@ -1,7 +1,5 @@
 # Hardware List – Version 0.1
 
-Status values: **available** = already in our possession or provided by the university · **open** = still to be procured.
-
 ## 1. Computers and Boards
 
 | # | Component | Qty | Purpose | Status |

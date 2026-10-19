@@ -6,7 +6,7 @@
 
 **The project is done when:**
 
-- a working demo carries real I2C transactions (read **and** write) over IEEE 1722 to **two different** I2C devices;
+- a working demo carries I2C transactions (read **and** write) over IEEE 1722 to **two different** I2C devices;
 - the traffic has been verified on the network (Wireshark);
 - the code can be built from the repository at any time (Linux), is documented and has tests;
 - the chosen operating mode, any deviations from the spec and our design decisions are documented and justified.
@@ -25,13 +25,13 @@
 | Example application / demo on real hardware | **missing** | core work |
 | Build integration, CI, documentation for the I2C example | **missing** | |
 
-**Conclusion:** The data format exists. We build the **application and protocol logic on top of it** and bring it up on real hardware.
+**Conclusion:** The data format exists. We build the **application and protocol logic on top of it** and bring it up on hardware.
 
 ## 3. Work Packages
 
 ### WP0 – Organization
 
-- Repository, project plan, system overview, hardware list (done)
+- Repository, project plan, system overview, hardware list
 
 ### WP1 – Familiarization and Setup
 
@@ -47,7 +47,7 @@
 ### WP3 – Implementation
 
 - Controller side and target side
-- First tests without real hardware (simulated I2C device, loopback)
+- First tests without hardware if possible(simulated I2C device, loopback)
 
 ### WP4 – Hardware Bring-up
 
@@ -69,7 +69,7 @@
 
 - Documentation and CI
 - Final report, presentation and live demo
-- Drect PR to Open-1722
+- Direct PR to Open-1722 if meaningful changes have been made
 
 ## 4. Timeline
 
@@ -87,8 +87,6 @@ flowchart LR
     WP5 --> WP6["WP6<br/>Robustness &<br/>evaluation"]
     WP6 --> WP7["WP7<br/>Wrap-up"]
 ```
-
-WP3 (software) and WP4 (hardware) can run in parallel. Testing WP3 against a simulated I2C device first keeps the software work from being blocked by the hardware.
 
 ## 6. Questions for the Supervisor
 
