@@ -1,7 +1,5 @@
 # RTS WS2026/27 – Task 2: Remote-Controlling I2C Peripherals over IEEE 1722
 
-Project for the course *Real-Time Systems* (Heilbronn University).
-
 **Goal:** Two different I2C peripherals attached to a board are controlled remotely from another computer over Ethernet. The I2C transactions are carried as IEEE 1722 ACF messages (`ACF_I2C`, IEEE 1722-2025 §9.4.16) using the [Open1722](https://github.com/COVESA/Open1722) library. Open1722 supports this format, but it has never been used in an actual application.
 
 | Document | Content |
