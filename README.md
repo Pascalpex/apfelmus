@@ -34,22 +34,33 @@ IEEE 1722-2025 (§9.4.16.1) describes two arrangements for the I2C message.
 
 ```mermaid
 flowchart TB
-    subgraph LOCAL["Controller I2C bus"]
+    subgraph LOCAL["Local System"]
         direction LR
         C["Controller"]
         TA["Target A"]
         TB["Target B"]
         AG["Target Agent"]
+        BUS1["━━━ Local I2C Bus ━━━"]
+
+        C --- BUS1
+        TA --- BUS1
+        TB --- BUS1
+        AG --- BUS1
     end
-    NET(["Network"])
-    subgraph REMOTE["Target I2C bus"]
+
+    subgraph REMOTE["Remote System"]
         direction LR
         TC["Target Controller"]
         TCC["Target C"]
         TD["Target D"]
+        BUS2["━━━ Remote I2C Bus ━━━"]
+
+        TC --- BUS2
+        TCC --- BUS2
+        TD --- BUS2
     end
-    AG <--> NET
-    NET <--> TC
+
+    AG <== "Ethernet (IEEE 1722)" ==> TC
 ```
 
 A *Target Agent* on the controller's I2C bus forwards transactions addressed to remote devices over the network to a *Target Controller*, which replays them on the remote I2C bus. Neither the Controller nor the remote Targets notice the network in between.
@@ -58,18 +69,23 @@ A *Target Agent* on the controller's I2C bus forwards transactions addressed to 
 
 ```mermaid
 flowchart TB
-    subgraph HOST[" "]
+    subgraph HOST["Local System"]
         C["Controller<br/>+ integrated Target Agent"]
     end
-    NET(["Network"])
-    subgraph REMOTE["Target I2C bus"]
+
+    subgraph REMOTE["Remote System"]
         direction LR
         TC["Target Controller"]
         TCC["Target C"]
         TD["Target D"]
+        BUS2["━━━ I2C Bus ━━━"]
+
+        TC --- BUS2
+        TCC --- BUS2
+        TD --- BUS2
     end
-    C <--> NET
-    NET <--> TC
+
+    C <== "Ethernet (IEEE 1722)" ==> TC
 ```
 
 Here the Controller is connected directly to the network and generates the I2C request messages itself. There is no I2C bus on the controller side.
