@@ -13,6 +13,7 @@
 #include "../Open1722/include/avtp/acf/I2CBrief.h"
 #include "bh1750.h"
 #include "fram.h"
+#include "i2C_test_listener.h"
 
 #define I2C_NODE DT_NODELABEL(i2c1)
 // FRAM device parameters
@@ -102,6 +103,16 @@ int main(void)
     printk("Light measurement from FRAM: %u.%02u lux\n",
         (unsigned int)lux_whole,
         (unsigned int)lux_decimal);
+
+
+     /// create an ACF-I2C message and check if it is valid
+    printk("\nStarting ACF-I2C tests...\n");
+
+    test_full_i2c_message();
+
+    test_brief_i2c_message();
+
+    test_raw_brief_message();
 
     return 0;
 }

@@ -8,6 +8,8 @@ target_sources(app PRIVATE
     src/main.c
     src/fram.c
     src/bh1750.c
+    src/i2C_listener.c
+    src/i2C_test_listener.c
 )
 
 target_include_directories(app PRIVATE
