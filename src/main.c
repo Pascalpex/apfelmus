@@ -14,6 +14,7 @@
 #include "bh1750.h"
 #include "fram.h"
 #include "i2C_test_listener.h"
+#include "i2C_listener.h"
 
 #define I2C_NODE DT_NODELABEL(i2c1)
 // FRAM device parameters
@@ -108,11 +109,26 @@ int main(void)
      /// create an ACF-I2C message and check if it is valid
     printk("\nStarting ACF-I2C tests...\n");
 
-    test_full_i2c_message();
+        uint8_t response[8] = {
+        0x00, 0x00,
+        0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00
+    };
+    Avtp_I2C_t message;
 
-    test_brief_i2c_message();
-
-    test_raw_brief_message();
+ret = i2c_listener_process(
+    i2c_dev,
+    I2C_FORMAT_FULL,
+    &message,
+    sizeof(message),
+    &response,
+    sizeof(response)
+);
+test_full_i2c_message();
+test_brief_i2c_message();
+test_raw_brief_message(i2c_dev);
+test_full_listener(i2c_dev);
+test_brief_listener(i2c_dev);
 
     return 0;
 }

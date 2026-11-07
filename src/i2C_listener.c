@@ -7,6 +7,17 @@
 #define FRAM_ADDR     0x50
 #define BH1750_ADDR   0x23
 
+typedef struct {
+    bool active;
+    uint8_t address;
+    uint8_t data[32];
+    size_t data_length;
+    uint8_t transaction;
+    uint16_t bus_id;
+} i2c_transaction_t;
+
+static i2c_transaction_t current_transaction;
+
 // Receive a full ACF-I²C message, decode it, and create a response message.
 //request	Pointer to the incoming ACF-I²C message
 //request_size	Number of bytes available in that message
@@ -39,7 +50,7 @@ static int process_full(
         (address == BH1750_ADDR);
 
     uint8_t response_code = supported ? I2C_CODE_TR2 : I2C_CODE_TR1; //if supported choose response code TR2 (ACK), otherwise TR1 (NACK)
-    uint8_t exception_code = supported ? 0 : 8; //TODO: 8 means bus timeout
+    uint8_t exception_code = 0; // No exception
 
     Avtp_I2C_CreateAcfMessage(
         response,
@@ -83,7 +94,7 @@ static int process_brief(
         (address == BH1750_ADDR);
 
     uint8_t response_code = supported ? I2C_CODE_TR2 : I2C_CODE_TR1;
-    uint8_t exception_code = supported ? 0 : 8;
+     uint8_t exception_code = 0;
 
     Avtp_I2CBrief_CreateAcfMessage(
         response,
@@ -102,6 +113,7 @@ static int process_brief(
 
 // Decides based on the given format whether to process a full or brief ACF-I²C message, and calls the appropriate function.
 int i2c_listener_process(
+    const struct device *i2c_dev,
     i2c_message_format_t format,
     const void *request,
     size_t request_size,

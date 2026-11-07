@@ -4,12 +4,13 @@
 #include "../Open1722/include/avtp/acf/I2C.h"
 #include "../Open1722/include/avtp/acf/I2CBrief.h"
 #include "i2c_listener.h"
+#include "i2c_test_listener.h"
 
 #define I2C_CODE_CR1  0
 #define I2C_CODE_TR2  9
 
 //creates an ACF message using the Avtp_I2C_CreateAcfMessage() method of the Open1722 library and calls the i2c_listener_process() to get a response. The response is then checked for correctness.
-static void test_full_listener(void)
+void test_full_listener(const struct device *i2c_dev)
 {
     Avtp_I2C_t request;
     Avtp_I2C_t response;
@@ -37,6 +38,7 @@ static void test_full_listener(void)
 
     /* Pass the generated message to the listener. */
     int ret = i2c_listener_process(
+        i2c_dev,
         I2C_FORMAT_FULL,
         &request,
         sizeof(request),
@@ -68,7 +70,7 @@ static void test_full_listener(void)
     }
 }
 
-static void test_brief_listener(void)
+void test_brief_listener(const struct device *i2c_dev)
 {
     Avtp_I2CBrief_t request;
     Avtp_I2CBrief_t response;
@@ -89,6 +91,7 @@ static void test_brief_listener(void)
     Avtp_I2CBrief_SetI2CBusId(&request, 3);
 
     int ret = i2c_listener_process(
+        i2c_dev,
         I2C_FORMAT_BRIEF,
         &request,
         sizeof(request),
@@ -120,7 +123,7 @@ static void test_brief_listener(void)
 }
 
 // creates a raw ACF-I2C Brief message (8 bytes) and passes it to the listener, and checks the response for correctness.
- void test_raw_brief_message(void)
+ void test_raw_brief_message(const struct device *i2c_dev)
 {
     printk("\n--- Testing raw ACF-I2C Brief message ---\n");
 
@@ -146,6 +149,7 @@ static void test_brief_listener(void)
 
     /* Pass the manually prepared bytes to your listener */
     int ret = i2c_listener_process(
+       i2c_dev,
         I2C_FORMAT_BRIEF,
         raw_request,
         sizeof(raw_request),
@@ -157,6 +161,15 @@ static void test_brief_listener(void)
         printk("Raw Brief message processing failed: %d\n", ret);
         return;
     }
+
+    if (Avtp_I2CBrief_GetI2CCode(&response) == I2C_CODE_TR2 &&
+        Avtp_I2CBrief_GetTransactionNum(&response) == 7 &&
+        Avtp_I2CBrief_GetI2CBusId(&response) == 3) {
+        printk("PASS: Raw Brief message test\n");
+    } else {
+        printk("FAIL: Raw Brief response incorrect\n");
+    }
+
 
     /* Decode the response */
     printk("Response successfully created!\n");
