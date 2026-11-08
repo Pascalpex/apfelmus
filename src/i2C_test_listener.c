@@ -583,6 +583,159 @@ void test_full_fram_read(const struct device *i2c_dev)
 }
 
 
+void test_full_fram_multibyte_read(const struct device *i2c_dev)
+{
+    printk("\n--- Test: Full ACF-I2C multi-byte FRAM read ---\n");
+
+    Avtp_I2C_t request;
+    Avtp_I2C_t response;
+
+    const uint8_t transaction = 46;
+    const uint16_t bus_id = 3;
+    const uint16_t test_address = 0x0200;
+
+    const uint8_t expected[3] = {0x11, 0x22, 0x33};
+    uint8_t received[3] = {0};
+
+    int ret;
+
+    /* Prepare three known bytes in FRAM. */
+    ret = write_to_fram(
+        i2c_dev,
+        test_address,
+        expected,
+        sizeof(expected)
+    );
+
+    if (ret != 0) {
+        printk("FAIL: Could not prepare FRAM data\n");
+        return;
+    }
+
+    /* CR1: START + FRAM WRITE. */
+    Avtp_I2C_CreateAcfMessage(
+        &request, 0, false, transaction, 0, 0, 0xA0
+    );
+    Avtp_I2C_SetI2CBusId(&request, bus_id);
+
+    ret = i2c_listener_process(
+        i2c_dev, I2C_FORMAT_FULL,
+        &request, sizeof(request),
+        &response, sizeof(response)
+    );
+
+    if (ret != 0 ||
+        Avtp_I2C_GetI2CCode(&response) != I2C_CODE_TR2) {
+        printk("FAIL: CR1\n");
+        return;
+    }
+
+    /* CR3: Memory address high byte. */
+    Avtp_I2C_CreateAcfMessage(
+        &request, 2, false, transaction, 0, 0, 0x02
+    );
+    Avtp_I2C_SetI2CBusId(&request, bus_id);
+
+    ret = i2c_listener_process(
+        i2c_dev, I2C_FORMAT_FULL,
+        &request, sizeof(request),
+        &response, sizeof(response)
+    );
+
+    if (ret != 0) {
+        printk("FAIL: CR3 address high\n");
+        return;
+    }
+
+    /* CR3: Memory address low byte. */
+    Avtp_I2C_CreateAcfMessage(
+        &request, 2, false, transaction, 0, 0, 0x00
+    );
+    Avtp_I2C_SetI2CBusId(&request, bus_id);
+
+    ret = i2c_listener_process(
+        i2c_dev, I2C_FORMAT_FULL,
+        &request, sizeof(request),
+        &response, sizeof(response)
+    );
+
+    if (ret != 0) {
+        printk("FAIL: CR3 address low\n");
+        return;
+    }
+
+    /* CR5: Repeated START + FRAM READ. */
+    Avtp_I2C_CreateAcfMessage(
+        &request, 4, false, transaction, 0, 0, 0xA1
+    );
+    Avtp_I2C_SetI2CBusId(&request, bus_id);
+
+    ret = i2c_listener_process(
+        i2c_dev, I2C_FORMAT_FULL,
+        &request, sizeof(request),
+        &response, sizeof(response)
+    );
+
+    if (ret != 0 ||
+        Avtp_I2C_GetI2CCode(&response) != I2C_CODE_TR2) {
+        printk("FAIL: CR5\n");
+        return;
+    }
+
+    /* CR6: Read byte 1, continue. */
+    for (size_t i = 0; i < 2; i++) {
+
+        Avtp_I2C_CreateAcfMessage(
+            &request, 5, false, transaction, 0, 0, 0
+        );
+        Avtp_I2C_SetI2CBusId(&request, bus_id);
+
+        ret = i2c_listener_process(
+            i2c_dev, I2C_FORMAT_FULL,
+            &request, sizeof(request),
+            &response, sizeof(response)
+        );
+
+        if (ret != 0 ||
+            Avtp_I2C_GetI2CCode(&response) != I2C_CODE_TR3) {
+            printk("FAIL: CR6 read byte %u\n", (unsigned int)i);
+            return;
+        }
+
+        received[i] = Avtp_I2C_GetI2CData(&response);
+    }
+
+    /* CR7: Read byte 3, NACK + STOP. */
+    Avtp_I2C_CreateAcfMessage(
+        &request, 6, false, transaction, 0, 0, 0
+    );
+    Avtp_I2C_SetI2CBusId(&request, bus_id);
+
+    ret = i2c_listener_process(
+        i2c_dev, I2C_FORMAT_FULL,
+        &request, sizeof(request),
+        &response, sizeof(response)
+    );
+
+    if (ret != 0 ||
+        Avtp_I2C_GetI2CCode(&response) != I2C_CODE_TR3) {
+        printk("FAIL: CR7 read byte 3\n");
+        return;
+    }
+
+    received[2] = Avtp_I2C_GetI2CData(&response);
+
+    printk("Received: %02X %02X %02X\n",
+           received[0], received[1], received[2]);
+
+    if (memcmp(received, expected, sizeof(expected)) == 0) {
+        printk("PASS: Full ACF-I2C multi-byte read verified!\n");
+    } else {
+        printk("FAIL: Multi-byte FRAM data mismatch\n");
+    }
+}
+
+
 //creates an ACF message using the Avtp_I2C_CreateAcfMessage() method of the Open1722 library and calls the i2c_listener_process() to get a response. The response is then checked for correctness.
 
 void test_full_listener(const struct device *i2c_dev)

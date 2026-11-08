@@ -32,8 +32,13 @@ typedef struct {
     bool active;
     uint8_t address;
     bool read;
+
     uint8_t write_data[34];
     size_t write_length;
+
+    uint16_t fram_read_address;
+    size_t read_count;
+
     uint8_t transaction;
     uint16_t bus_id;
 } i2c_transaction_t;
@@ -180,20 +185,18 @@ static int process_full(
 
         return 0;
     }
-
     /* -------------------------------------------------
-    * CR5: End write phase and restart with read address.
-    * ------------------------------------------------- */
+     * CR5: End write phase and restart with read address.
+     * ------------------------------------------------- */
     if (code == I2C_CODE_CR5) {
 
         uint8_t address_data = Avtp_I2C_GetI2CData(request);
         uint8_t address = address_data >> 1;
         bool read = (address_data & 0x01U) != 0U;
 
-        /* We expect FRAM address 0x50 with the read bit set. */
         if (address != FRAM_ADDR ||
             !read ||
-            current_transaction.write_length < 2) {
+            current_transaction.write_length != 2) {
 
             current_transaction.active = false;
 
@@ -207,6 +210,11 @@ static int process_full(
             return 0;
         }
 
+        current_transaction.fram_read_address =
+            ((uint16_t)current_transaction.write_data[0] << 8) |
+            current_transaction.write_data[1];
+
+        current_transaction.read_count = 0;
         current_transaction.read = true;
 
         create_response(
@@ -279,14 +287,61 @@ static int process_full(
         return 0;
     }
 
+    /* CR6: Read one byte and continue. */
+    if (code == 5) {
+
+        if (!current_transaction.read) {
+            current_transaction.active = false;
+
+            create_response(
+                request, response,
+                I2C_CODE_TR1,
+                I2C_EXCEPTION_SEQUENCE,
+                0
+            );
+            return 0;
+        }
+
+        uint8_t read_data = 0;
+
+        int ret = read_fram(
+            i2c_dev,
+            current_transaction.fram_read_address +
+                current_transaction.read_count,
+            &read_data,
+            sizeof(read_data)
+        );
+
+        if (ret != 0) {
+            current_transaction.active = false;
+
+            create_response(
+                request, response,
+                I2C_CODE_TR1,
+                I2C_EXCEPTION_NONE,
+                0
+            );
+
+            return ret;
+        }
+
+        current_transaction.read_count++;
+
+        create_response(
+            request, response,
+            I2C_CODE_TR3,
+            I2C_EXCEPTION_NONE,
+            read_data
+        );
+
+        return 0;
+    }
     /* -------------------------------------------------
     * CR7: Read final byte, NACK and STOP.
     * ------------------------------------------------- */
-    if (code == I2C_CODE_CR7) {
+    if (code == 6) {
 
-        if (!current_transaction.read ||
-            current_transaction.write_length < 2) {
-
+        if (!current_transaction.read) {
             current_transaction.active = false;
 
             create_response(
@@ -299,18 +354,12 @@ static int process_full(
             return 0;
         }
 
-        uint8_t memory_address[2] = {
-            current_transaction.write_data[0],
-            current_transaction.write_data[1]
-        };
-
         uint8_t read_data = 0;
 
-        int ret = i2c_write_read(
+        int ret = read_fram(
             i2c_dev,
-            FRAM_ADDR,
-            memory_address,
-            sizeof(memory_address),
+            current_transaction.fram_read_address +
+                current_transaction.read_count,
             &read_data,
             sizeof(read_data)
         );
@@ -328,6 +377,13 @@ static int process_full(
             return ret;
         }
 
+        create_response(
+            request, response,
+            I2C_CODE_TR3,
+            I2C_EXCEPTION_NONE,
+            read_data
+        );
+
         /* TR3 returns the byte read from the FRAM. */
         create_response(
             request, response,
@@ -338,7 +394,6 @@ static int process_full(
 
         return 0;
     }
-
     /* Other commands are not implemented yet. */
     return -ENOTSUP;
 }

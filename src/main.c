@@ -120,7 +120,8 @@ int main(void)
 
     test_full_fram_write(i2c_dev);
     test_full_fram_read(i2c_dev);
-    
+    test_full_fram_multibyte_read(i2c_dev);
+
     test_brief_fram_write(i2c_dev);
     test_brief_fram_read(i2c_dev);
 
