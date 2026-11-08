@@ -18,6 +18,9 @@ LOG_MODULE_REGISTER(i2c1722_target, LOG_LEVEL_INF);
 /* static: keeps the buffers off the main stack */
 static uint8_t rx_buf[I2C1722_PDU_SIZE(MAX_I2C_MSGS)];
 static Avtp_I2C_t msgs[MAX_I2C_MSGS];
+static uint8_t tx_buf[I2C1722_PDU_SIZE(MAX_I2C_MSGS)];
+static Avtp_I2C_t rsp_msgs[MAX_I2C_MSGS];
+static uint32_t tx_seq; /* sequence number of the target's own stream */
 
 /* from create_listener_socket_udp() in Open1722 examples/acf-can/zephyr */
 static int create_listener_socket_udp(uint32_t udp_port)
@@ -94,6 +97,27 @@ int main(void)
                     Avtp_I2C_GetTransactionNum(m), Avtp_I2C_GetEvt(m),
                     Avtp_I2C_GetExceptionCode(m), Avtp_I2C_GetI2CData(m));
         }
+
+        /* Response: one ACF_I2C message per request message*/
+        for (int i = 0; i < n; i++)
+        {
+            const Avtp_I2C_t *req = &msgs[i];
+            Avtp_I2C_CreateAcfMessage(&rsp_msgs[i], Avtp_I2C_GetI2CCode(req),
+                                      Avtp_I2C_IsTrr(req), Avtp_I2C_GetTransactionNum(req),
+                                      Avtp_I2C_GetEvt(req), 0,
+                                      Avtp_I2C_GetI2CData(req));
+            Avtp_I2C_SetI2CBusId(&rsp_msgs[i], Avtp_I2C_GetI2CBusId(req));
+        }
+
+        int rsp_len = i2c_to_avtp(tx_buf, sizeof(tx_buf), 1, AVTPDU_VERSION_0,
+                                  I2C1722_TARGET_STREAM_ID, tx_seq++, rsp_msgs, (uint8_t)n);
+        if (rsp_len < 0 ||
+            sendto(fd, tx_buf, (size_t)rsp_len, 0, (struct sockaddr *)&src, src_len) < 0)
+        {
+            LOG_ERR("Sending response failed: %d", errno);
+            continue;
+        }
+        LOG_INF("Response seq=%u sent to %s: %d ACF_I2C message(s)", tx_seq - 1, ip, n);
     }
     return 0;
 }
