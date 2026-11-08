@@ -5,15 +5,20 @@
 
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
+#include <zephyr/drivers/i2c.h>
 #include <zephyr/posix/arpa/inet.h>
 #include <zephyr/posix/sys/socket.h>
 #include <zephyr/posix/unistd.h>
 
 #include "i2c1722.h"
+#include "i2c1722_proto.h"
 
 LOG_MODULE_REGISTER(i2c1722_target, LOG_LEVEL_INF);
 
 #define MAX_I2C_MSGS 16
+
+/* I2C bus the requests are executed on*/
+static const struct device *i2c_bus = DEVICE_DT_GET(DT_ALIAS(i2c1722_bus));
 
 /* static: keeps the buffers off the main stack */
 static uint8_t rx_buf[I2C1722_PDU_SIZE(MAX_I2C_MSGS)];
@@ -54,9 +59,52 @@ static int create_listener_socket_udp(uint32_t udp_port)
     return fd;
 }
 
+/*
+ * Executes the request messages of one frame as one register read with i2c_write_read():
+ *   START addr+W, write bytes..., START addr+R, read bytes...
+ * and fills one response message per request message. Encoding see i2c1722_proto.h.
+ */
+static void execute_i2c(const Avtp_I2C_t *req, Avtp_I2C_t *rsp, int n)
+{
+    uint8_t buf[MAX_I2C_MSGS]; /* buf[i] = data byte of request message i */
+    int rd = 0;                /* index of the START message of the read part */
+
+    for (int i = 0; i < n; i++)
+    {
+        buf[i] = Avtp_I2C_GetI2CData(&req[i]);
+        if (i > 0 && (Avtp_I2C_GetEvt(&req[i]) & I2C1722_EVT_START))
+        {
+            rd = i;
+        }
+    }
+
+    uint16_t addr = buf[0] >> 1;
+    int ret = -EINVAL;
+    if (rd > 0)
+    {
+        ret = i2c_write_read(i2c_bus, addr, &buf[1], rd - 1, &buf[rd + 1], n - rd - 1);
+    }
+    LOG_INF("  i2c_write_read addr=0x%02x: ret=%d", addr, ret);
+
+    /* Response: copy of the request with the read bytes filled in and the result */
+    for (int i = 0; i < n; i++)
+    {
+        rsp[i] = req[i];
+        Avtp_I2C_SetI2CData(&rsp[i], buf[i]);
+        Avtp_I2C_SetExceptionCode(&rsp[i], ret == 0 ? I2C1722_EXC_OK : I2C1722_EXC_NACK);
+    }
+}
+
 int main(void)
 {
     LOG_INF("i2c1722 target");
+
+    if (!device_is_ready(i2c_bus))
+    {
+        LOG_ERR("I2C bus %s not ready", i2c_bus->name);
+        return 0;
+    }
+    LOG_INF("I2C requests are executed on %s", i2c_bus->name);
 
     int fd = create_listener_socket_udp(I2C1722_UDP_PORT);
     if (fd < 0)
@@ -98,16 +146,8 @@ int main(void)
                     Avtp_I2C_GetExceptionCode(m), Avtp_I2C_GetI2CData(m));
         }
 
-        /* Response: one ACF_I2C message per request message*/
-        for (int i = 0; i < n; i++)
-        {
-            const Avtp_I2C_t *req = &msgs[i];
-            Avtp_I2C_CreateAcfMessage(&rsp_msgs[i], Avtp_I2C_GetI2CCode(req),
-                                      Avtp_I2C_IsTrr(req), Avtp_I2C_GetTransactionNum(req),
-                                      Avtp_I2C_GetEvt(req), 0,
-                                      Avtp_I2C_GetI2CData(req));
-            Avtp_I2C_SetI2CBusId(&rsp_msgs[i], Avtp_I2C_GetI2CBusId(req));
-        }
+        /* Run the requests on the I2C bus, one response message per request message */
+        execute_i2c(msgs, rsp_msgs, n);
 
         int rsp_len = i2c_to_avtp(tx_buf, sizeof(tx_buf), 1, AVTPDU_VERSION_0,
                                   I2C1722_TARGET_STREAM_ID, tx_seq++, rsp_msgs, (uint8_t)n);
