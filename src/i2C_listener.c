@@ -23,6 +23,8 @@
 
 #define FRAM_ADDR 0x50
 
+#define BH1750_ADDR 0x23
+
 /*
  * One FRAM write transaction:
  *   2 bytes for the FRAM memory address
@@ -45,6 +47,17 @@ typedef struct {
 
 static i2c_transaction_t current_transaction;
 
+// For the BH1750
+static uint8_t bh1750_cached_data[2];
+static bool bh1750_data_valid = false;
+
+//definition
+static void create_brief_response(
+    const Avtp_I2CBrief_t *request,
+    Avtp_I2CBrief_t *response,
+    uint8_t response_code,
+    uint8_t exception_code,
+    uint8_t response_data);
 
 /* Create a Full-format response and copy request identifiers. */
 static void create_response(
@@ -106,7 +119,7 @@ static int process_full(
         bool read = (address_data & 0x01U) != 0U;
 
         /* This first implementation supports FRAM writes only. */
-        if (address != FRAM_ADDR || read) {
+        if (address != FRAM_ADDR && address != BH1750_ADDR) {
             create_response(
                 request, response,
                 I2C_CODE_TR1,
@@ -121,12 +134,29 @@ static int process_full(
 
         current_transaction.active = true;
         current_transaction.address = address;
-        current_transaction.read = false;
+        current_transaction.read = read;
         current_transaction.transaction = transaction;
         current_transaction.bus_id = bus_id;
+        current_transaction.read_count = 0;
 
+        /* A BH1750 read is only allowed after a valid measurement. */
+        if (address == BH1750_ADDR && read && !bh1750_data_valid) {
+            current_transaction.active = false;
+
+            create_response(
+                request, response,
+                I2C_CODE_TR1,
+                I2C_EXCEPTION_SEQUENCE,
+                0
+            );
+
+            return 0;
+        }
+
+        /* CR1 accepted: return TR2 (ACK). */
         create_response(
-            request, response,
+            request,
+            response,
             I2C_CODE_TR2,
             I2C_EXCEPTION_NONE,
             0
@@ -190,13 +220,26 @@ static int process_full(
      * ------------------------------------------------- */
     if (code == I2C_CODE_CR5) {
 
+            /* This BH1750 test sequence does not use CR5. */
+        if (current_transaction.address == BH1750_ADDR) {
+            current_transaction.active = false;
+
+            create_response(
+                request,
+                response,
+                8,      /* TR1: NACK */
+                0,
+                0
+            );
+            return 0;
+        }
+
         uint8_t address_data = Avtp_I2C_GetI2CData(request);
         uint8_t address = address_data >> 1;
         bool read = (address_data & 0x01U) != 0U;
 
-        if (address != FRAM_ADDR ||
-            !read ||
-            current_transaction.write_length != 2) {
+        if (address != FRAM_ADDR &&
+            address != BH1750_ADDR) {
 
             current_transaction.active = false;
 
@@ -217,6 +260,24 @@ static int process_full(
         current_transaction.read_count = 0;
         current_transaction.read = true;
 
+        if (address == BH1750_ADDR && read) {
+            if (!bh1750_data_valid) {
+                current_transaction.active = false;
+
+                create_response(
+                    request, response,
+                    I2C_CODE_TR1,
+                    I2C_EXCEPTION_SEQUENCE,
+                    0
+                );
+
+                return 0;
+            }
+
+            current_transaction.read = true;
+            current_transaction.read_count = 0;
+        }
+
         create_response(
             request, response,
             I2C_CODE_TR2,
@@ -231,6 +292,65 @@ static int process_full(
      * CR4: STOP and execute the FRAM write.
      * ------------------------------------------------- */
     if (code == I2C_CODE_CR4) {
+
+        if (current_transaction.address == BH1750_ADDR) {
+
+            if (current_transaction.write_length != 1 ||
+                current_transaction.write_data[0] != BH1750_ONETIME_HR) {
+
+                current_transaction.active = false;
+
+                create_response(
+                    request, response,
+                    I2C_CODE_TR1,
+                    I2C_EXCEPTION_SEQUENCE,
+                    0
+                );
+
+                return 0;
+            }
+
+            uint16_t raw_value;
+
+            int ret = bh1750_read_raw(
+                i2c_dev,
+                &raw_value
+            );
+
+            current_transaction.active = false;
+
+            if (ret != 0) {
+                bh1750_data_valid = false;
+
+                create_response(
+                    request, response,
+                    I2C_CODE_TR1,
+                    I2C_EXCEPTION_NONE,
+                    0
+                );
+
+                return ret;
+            }
+
+            bh1750_cached_data[0] =
+                (uint8_t)(raw_value >> 8);
+
+            bh1750_cached_data[1] =
+                (uint8_t)(raw_value & 0xFF);
+
+            bh1750_data_valid = true;
+
+            if (Avtp_I2C_IsTrr(request)) {
+                create_response(
+                    request, response,
+                    I2C_CODE_TR5,
+                    I2C_EXCEPTION_NONE,
+                    0
+                );
+            }
+
+            return 0;
+        }
 
         if (current_transaction.write_length < 3) {
             current_transaction.active = false;
@@ -290,6 +410,28 @@ static int process_full(
     /* CR6: Read one byte and continue. */
     if (code == 5) {
 
+        if (current_transaction.address == BH1750_ADDR) {
+
+            if (!current_transaction.read ||
+                current_transaction.read_count >= 2) {
+                return -EINVAL;
+            }
+
+            uint8_t read_data =
+                bh1750_cached_data[current_transaction.read_count];
+
+            current_transaction.read_count++;
+
+            create_response(
+                request, response,
+                I2C_CODE_TR3,
+                I2C_EXCEPTION_NONE,
+                read_data
+            );
+
+            return 0;
+        }
+
         if (!current_transaction.read) {
             current_transaction.active = false;
 
@@ -341,6 +483,28 @@ static int process_full(
     * ------------------------------------------------- */
     if (code == 6) {
 
+        if (current_transaction.address == BH1750_ADDR) {
+
+            if (!current_transaction.read ||
+                current_transaction.read_count != 1) {
+                current_transaction.active = false;
+                return -EINVAL;
+            }
+
+            uint8_t read_data = bh1750_cached_data[1];
+
+            current_transaction.read_count++;
+            current_transaction.active = false;
+
+            create_response(
+                request, response,
+                I2C_CODE_TR3,
+                I2C_EXCEPTION_NONE,
+                read_data
+            );
+
+            return 0;
+        }
         if (!current_transaction.read) {
             current_transaction.active = false;
 
@@ -376,13 +540,6 @@ static int process_full(
 
             return ret;
         }
-
-        create_response(
-            request, response,
-            I2C_CODE_TR3,
-            I2C_EXCEPTION_NONE,
-            read_data
-        );
 
         /* TR3 returns the byte read from the FRAM. */
         create_response(

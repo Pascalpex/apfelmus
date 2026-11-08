@@ -10,6 +10,7 @@
 #include <errno.h>
 #include <string.h>
 #include "fram.h"
+#include "bh1750.h"
 
 #include "../Open1722/include/avtp/acf/I2C.h"
 #include "../Open1722/include/avtp/acf/I2CBrief.h"
@@ -27,13 +28,5 @@ int i2c_listener_process(
     void *response,
     size_t response_size
 );
-
-
-static void create_brief_response(
-    const Avtp_I2CBrief_t *request,
-    Avtp_I2CBrief_t *response,
-    uint8_t response_code,
-    uint8_t exception_code,
-    uint8_t response_data);
     
 #endif

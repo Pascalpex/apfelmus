@@ -18,6 +18,11 @@
  *
  * Returns 0 on success, negative error code on failure.
  */
+int bh1750_read_raw(
+    const struct device *i2c_dev,
+    uint16_t *raw_value
+);
+
 int bh1750_read_lux(
     const struct device *i2c_dev,
     uint32_t *lux_x100

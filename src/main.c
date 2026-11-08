@@ -125,6 +125,8 @@ int main(void)
     test_brief_fram_write(i2c_dev);
     test_brief_fram_read(i2c_dev);
 
+    test_full_bh1750_read(i2c_dev);
+
     printk("\nACF-I2C tests completed.\n");
 
     return 0;

@@ -54,3 +54,44 @@ int bh1750_read_lux(
 
     return 0;
 }
+
+int bh1750_read_raw(
+    const struct device *i2c_dev,
+    uint16_t *raw_value)
+{
+    if (i2c_dev == NULL || raw_value == NULL) {
+        return -EINVAL;
+    }
+
+    uint8_t command = BH1750_ONETIME_HR;
+    uint8_t data[2];
+
+    int ret = i2c_write(
+        i2c_dev,
+        &command,
+        sizeof(command),
+        BH1750_I2C_ADDR
+    );
+
+    if (ret != 0) {
+        return ret;
+    }
+
+    k_msleep(180);
+
+    ret = i2c_read(
+        i2c_dev,
+        data,
+        sizeof(data),
+        BH1750_I2C_ADDR
+    );
+
+    if (ret != 0) {
+        return ret;
+    }
+
+    *raw_value =
+        ((uint16_t)data[0] << 8) | data[1];
+
+    return 0;
+}

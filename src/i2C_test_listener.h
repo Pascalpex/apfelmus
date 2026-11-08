@@ -26,4 +26,6 @@ void test_full_fram_multibyte_read(const struct device *i2c_dev);
 
 void test_brief_fram_read(const struct device *i2c_dev);
 
+void test_full_bh1750_read(const struct device *i2c_dev);
+
 #endif /* I2C_TEST_LISTENER_H */

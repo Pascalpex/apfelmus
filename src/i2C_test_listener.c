@@ -1000,3 +1000,174 @@ void test_full_i2c_message(void)
         printk("Brief I2C decoding test FAILED!\n");
     }
 }
+
+void test_full_bh1750_read(const struct device *i2c_dev)
+{
+    printk("\n--- Test: Full ACF-I2C BH1750 read ---\n");
+
+    Avtp_I2C_t request;
+    Avtp_I2C_t response;
+
+    const uint16_t bus_id = 3;
+    const uint8_t write_transaction = 50;
+    const uint8_t read_transaction = 51;
+
+    uint8_t msb;
+    uint8_t lsb;
+    uint16_t raw;
+    float lux;
+
+    int ret;
+
+    /* ---------------------------------------
+     * PHASE 1: Start a BH1750 measurement
+     * --------------------------------------- */
+
+    /* CR1: START + BH1750 address + WRITE (0x46). */
+    Avtp_I2C_CreateAcfMessage(
+        &request, 0, false,
+        write_transaction, 0, 0, 0x46
+    );
+    Avtp_I2C_SetI2CBusId(&request, bus_id);
+
+    ret = i2c_listener_process(
+        i2c_dev, I2C_FORMAT_FULL,
+        &request, sizeof(request),
+        &response, sizeof(response)
+    );
+
+    if (ret != 0 ||
+        Avtp_I2C_GetI2CCode(&response) != I2C_CODE_TR2) {
+        printk("FAIL: BH1750 write START\n");
+        return;
+    }
+
+    printk("BH1750 write address accepted.\n");
+
+    /* CR3: Send one-time high-resolution command (0x20). */
+    Avtp_I2C_CreateAcfMessage(
+        &request, 2, false,
+        write_transaction, 0, 0, 0x20
+    );
+    Avtp_I2C_SetI2CBusId(&request, bus_id);
+
+    ret = i2c_listener_process(
+        i2c_dev, I2C_FORMAT_FULL,
+        &request, sizeof(request),
+        &response, sizeof(response)
+    );
+
+    if (ret != 0 ||
+        Avtp_I2C_GetI2CCode(&response) != I2C_CODE_TR2) {
+        printk("FAIL: BH1750 measurement command\n");
+        return;
+    }
+
+    printk("BH1750 measurement command accepted.\n");
+
+    /* CR4: STOP, request STOP confirmation (TRR = true). */
+    Avtp_I2C_CreateAcfMessage(
+        &request, 3, true,
+        write_transaction, 0, 0, 0
+    );
+    Avtp_I2C_SetI2CBusId(&request, bus_id);
+
+    ret = i2c_listener_process(
+        i2c_dev, I2C_FORMAT_FULL,
+        &request, sizeof(request),
+        &response, sizeof(response)
+    );
+
+    if (ret != 0 ||
+        Avtp_I2C_GetI2CCode(&response) != I2C_CODE_TR5) {
+        printk("FAIL: BH1750 measurement / STOP\n");
+        return;
+    }
+
+    printk("BH1750 measurement completed.\n");
+
+    /* ---------------------------------------
+     * PHASE 2: Read the two sensor bytes
+     * --------------------------------------- */
+
+    /* CR1: START + BH1750 address + READ (0x47). */
+    Avtp_I2C_CreateAcfMessage(
+        &request, 0, false,
+        read_transaction, 0, 0, 0x47
+    );
+    Avtp_I2C_SetI2CBusId(&request, bus_id);
+
+    ret = i2c_listener_process(
+        i2c_dev, I2C_FORMAT_FULL,
+        &request, sizeof(request),
+        &response, sizeof(response)
+    );
+
+    if (ret != 0 ||
+        Avtp_I2C_GetI2CCode(&response) != I2C_CODE_TR2) {
+        printk("FAIL: BH1750 read START\n");
+        return;
+    }
+
+    printk("BH1750 read address accepted.\n");
+
+    /* CR6: Read first byte and continue. */
+    Avtp_I2C_CreateAcfMessage(
+        &request, 5, false,
+        read_transaction, 0, 0, 0
+    );
+    Avtp_I2C_SetI2CBusId(&request, bus_id);
+
+    ret = i2c_listener_process(
+        i2c_dev, I2C_FORMAT_FULL,
+        &request, sizeof(request),
+        &response, sizeof(response)
+    );
+
+    if (ret != 0 ||
+        Avtp_I2C_GetI2CCode(&response) != I2C_CODE_TR3) {
+        printk("FAIL: BH1750 CR6\n");
+        return;
+    }
+
+    msb = Avtp_I2C_GetI2CData(&response);
+
+    /* CR7: Read final byte, NACK and STOP. */
+    Avtp_I2C_CreateAcfMessage(
+        &request, 6, false,
+        read_transaction, 0, 0, 0
+    );
+    Avtp_I2C_SetI2CBusId(&request, bus_id);
+
+    ret = i2c_listener_process(
+        i2c_dev, I2C_FORMAT_FULL,
+        &request, sizeof(request),
+        &response, sizeof(response)
+    );
+
+    if (ret != 0 ||
+        Avtp_I2C_GetI2CCode(&response) != I2C_CODE_TR3) {
+        printk("FAIL: BH1750 CR7\n");
+        return;
+    }
+
+    lsb = Avtp_I2C_GetI2CData(&response);
+
+    /* ---------------------------------------
+     * PHASE 3: Convert and display the result
+     * --------------------------------------- */
+
+    raw = ((uint16_t)msb << 8) | lsb;
+    lux = (float)raw / 1.2f;
+
+    uint32_t lux_x100 = ((uint32_t)raw * 250U + 1U) / 3U;
+
+    printk("BH1750 MSB: 0x%02X\n", msb);
+    printk("BH1750 LSB: 0x%02X\n", lsb);
+    printk("Raw sensor value: %u\n", raw);
+    printk("Light level: %u.%02u lux\n",
+       (unsigned int)(lux_x100 / 100U),
+       (unsigned int)(lux_x100 % 100U));
+
+    printk("PASS: Full ACF-I2C BH1750 read verified!\n");
+}
