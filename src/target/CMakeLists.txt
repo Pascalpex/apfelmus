@@ -11,4 +11,8 @@ target_include_directories(app PRIVATE
     ${OPEN1722_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/../common
 )
-target_sources(app PRIVATE src/main.c)
+target_sources(app PRIVATE
+    src/main.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../common/i2c1722.c
+)
+
