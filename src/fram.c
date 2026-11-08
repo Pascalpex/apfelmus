@@ -56,6 +56,7 @@ int write_to_fram(
         );
 
         if (ret != 0) {
+            printk("FAIL: FRAM write failed: %d\n", ret);
             return ret;
         }
 
@@ -103,7 +104,7 @@ int read_fram(
 
     if (ret != 0) {
          printk("FAIL: FRAM read failed: %d\n", ret);
-        return 0;
+        return ret;
     }
 
 

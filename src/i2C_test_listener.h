@@ -15,4 +15,13 @@ void test_raw_brief_message(const struct device *i2c_dev);
 void test_full_listener(const struct device *i2c_dev);
 void test_brief_listener(const struct device *i2c_dev);
 
+
+void test_full_fram_write(const struct device *i2c_dev);
+
+void test_brief_fram_write(const struct device *i2c_dev);
+
+void test_full_fram_read(const struct device *i2c_dev);
+
+void test_brief_fram_read(const struct device *i2c_dev);
+
 #endif /* I2C_TEST_LISTENER_H */

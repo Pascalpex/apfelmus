@@ -4,6 +4,7 @@
 #include <zephyr/device.h>
 #include <stdint.h>
 #include <stddef.h>
+#include <zephyr/sys/printk.h>
 
 /* MB85RC256V parameters */
 #define FRAM_I2C_ADDR  0x50

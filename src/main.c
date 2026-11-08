@@ -91,7 +91,7 @@ int main(void)
         return 0;
     }
 
-    /* Reconstruct the 32-bit value from the four bytes */
+    /* 6. Reconstruct the 32-bit value from the four bytes */
     lux_x100 =
         ((uint32_t)read_data[0] << 24) |
         ((uint32_t)read_data[1] << 16) |
@@ -106,29 +106,25 @@ int main(void)
         (unsigned int)lux_decimal);
 
 
-     /// create an ACF-I2C message and check if it is valid
+     ///7. create an ACF-I2C message and check if it is valid
     printk("\nStarting ACF-I2C tests...\n");
 
-        uint8_t response[8] = {
-        0x00, 0x00,
-        0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00
-    };
-    Avtp_I2C_t message;
+    /* Test Full and Brief message creation and decoding. */
+    test_full_i2c_message();
+    test_brief_i2c_message();
 
-ret = i2c_listener_process(
-    i2c_dev,
-    I2C_FORMAT_FULL,
-    &message,
-    sizeof(message),
-    &response,
-    sizeof(response)
-);
-test_full_i2c_message();
-test_brief_i2c_message();
-test_raw_brief_message(i2c_dev);
-test_full_listener(i2c_dev);
-test_brief_listener(i2c_dev);
+    /* Test the listener with generated and raw messages. */
+    // test_raw_brief_message(i2c_dev);
+    // test_full_listener(i2c_dev);
+    // test_brief_listener(i2c_dev);
+
+    test_full_fram_write(i2c_dev);
+    test_full_fram_read(i2c_dev);
+    
+    test_brief_fram_write(i2c_dev);
+    test_brief_fram_read(i2c_dev);
+
+    printk("\nACF-I2C tests completed.\n");
 
     return 0;
 }
