@@ -14,6 +14,13 @@
 #define TEST_FRAM_ADDRESS 0x0100
 #define TEST_FRAM_VALUE   0xA5
 
+/**
+ * @brief Tests writing one byte to the FRAM using Full ACF-I2C messages.
+ *
+ * Creates a sequence of CR1, CR3 and CR4 messages to select the FRAM,
+ * specify the memory address and write a data byte. Verifies the
+ * operation by reading the value back from the physical FRAM.
+ */
 void test_full_fram_write(const struct device *i2c_dev)
 {
     printk("\n--- Test: ACF-I2C Full FRAM write ---\n");
@@ -165,6 +172,13 @@ void test_full_fram_write(const struct device *i2c_dev)
 
 
 
+/**
+ * @brief Tests writing one byte to the FRAM using Brief ACF-I2C messages.
+ *
+ * Creates a sequence of CR1, CR3 and CR4 messages to select the FRAM,
+ * specify the memory address and write a data byte. Verifies the
+ * operation by reading the value back from the physical FRAM.
+ */
 void test_brief_fram_write(const struct device *i2c_dev)
 {
     printk("\n--- Test: ACF-I2C Brief FRAM write ---\n");
@@ -303,6 +317,14 @@ void test_brief_fram_write(const struct device *i2c_dev)
     }
 }
 
+
+/**
+ * @brief Tests reading one byte from the FRAM using Brief ACF-I2C messages.
+ *
+ * Creates a sequence of CR1, CR3 and CR5 messages to select the FRAM,
+ * specify the memory address and read a data byte. Verifies the
+ * operation by comparing the read value with the expected value.
+ */
 
 void test_brief_fram_read(const struct device *i2c_dev)
 {
@@ -451,7 +473,13 @@ void test_brief_fram_read(const struct device *i2c_dev)
     }
 }
 
-
+/**
+ * @brief Tests reading one byte from the FRAM using Full ACF-I2C messages.
+ *
+ * First prepares a known value in the FRAM. Then sends Full-format
+ * messages to select the memory address and request the stored byte.
+ * Verifies that the listener returns the expected value.
+ */
 void test_full_fram_read(const struct device *i2c_dev)
 {
     printk("\n--- Test: ACF-I2C Full FRAM read ---\n");
@@ -582,7 +610,14 @@ void test_full_fram_read(const struct device *i2c_dev)
     }
 }
 
-
+/**
+ * @brief Tests reading multiple consecutive bytes from the FRAM using Full ACF-I2C.
+ *
+ * Prepares three known bytes in the FRAM and sends Full-format messages
+ * to select the memory address and read the data. Uses CR6 to read
+ * intermediate bytes and CR7 for the final byte. Compares the received
+ * data with the expected byte sequence.
+ */
 void test_full_fram_multibyte_read(const struct device *i2c_dev)
 {
     printk("\n--- Test: Full ACF-I2C multi-byte FRAM read ---\n");
@@ -735,9 +770,13 @@ void test_full_fram_multibyte_read(const struct device *i2c_dev)
     }
 }
 
-
-//creates an ACF message using the Avtp_I2C_CreateAcfMessage() method of the Open1722 library and calls the i2c_listener_process() to get a response. The response is then checked for correctness.
-
+/**
+ * @brief Tests the basic processing of a Full ACF-I2C message.
+ *
+ * Creates a CR1 START request for the FRAM and passes it to the listener.
+ * Checks whether the response contains the expected response code,
+ * transaction number and I2C bus identifier.
+ */
 void test_full_listener(const struct device *i2c_dev)
 {
     printk("\n--- Test: Full ACF-I2C ---\n");
@@ -792,7 +831,13 @@ void test_full_listener(const struct device *i2c_dev)
     printk("PASS: Full-format listener test!\n");
 }
 
-
+/**
+ * @brief Tests the basic processing of a Brief ACF-I2C message.
+ *
+ * Creates a Brief-format START request and passes it to the listener.
+ * Checks whether the response contains the expected response code,
+ * transaction number and I2C bus identifier.
+ */
 void test_brief_listener(const struct device *i2c_dev)
 {
     Avtp_I2CBrief_t request;
@@ -845,7 +890,13 @@ void test_brief_listener(const struct device *i2c_dev)
     }
 }
 
-// creates a raw ACF-I2C Brief message (8 bytes) and passes it to the listener, and checks the response for correctness.
+/**
+ * @brief Tests listener processing using a manually encoded Brief ACF-I2C message.
+ *
+ * Creates an 8-byte ACF-I2C Brief message directly as a byte array
+ * instead of using the Open1722 message creation function. Passes
+ * the raw message to the listener and checks the decoded response fields.
+ */
  void test_raw_brief_message(const struct device *i2c_dev)
 {
     printk("\n--- Testing raw ACF-I2C Brief message ---\n");
@@ -912,6 +963,13 @@ void test_brief_listener(const struct device *i2c_dev)
            Avtp_I2CBrief_GetI2CData(&response));
 }
 
+/**
+ * @brief Tests creation, validation and decoding of a Full ACF-I2C message.
+ *
+ * Creates a Full ACF-I2C message using Open1722, checks its validity
+ * and decodes selected fields. Compares the decoded values with the
+ * original test values.
+ */
 void test_full_i2c_message(void)
 {
     printk("\n--- Testing full ACF-I2C message ---\n");
@@ -956,7 +1014,13 @@ void test_full_i2c_message(void)
     }
 }
 
-
+/**
+ * @brief Tests creation, validation and decoding of a Brief ACF-I2C message.
+ *
+ * Creates a Brief ACF-I2C message using Open1722, checks its validity
+ * and decodes selected fields. Compares the decoded values with the
+ * original test values.
+ */
  void test_brief_i2c_message(void)
 {
     printk("\n--- Testing ACF-I2C Brief message ---\n");
@@ -1001,6 +1065,14 @@ void test_full_i2c_message(void)
     }
 }
 
+/**
+ * @brief Tests reading the BH1750 light sensor using Full ACF-I2C messages.
+ *
+ * Sends a measurement command to the BH1750 through the ACF-I2C listener.
+ * Starts a separate read transaction to retrieve the two sensor data bytes.
+ * Combines the bytes, converts the raw measurement into lux and displays
+ * the measured light intensity.
+ */
 void test_full_bh1750_read(const struct device *i2c_dev)
 {
     printk("\n--- Test: Full ACF-I2C BH1750 read ---\n");

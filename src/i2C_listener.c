@@ -25,10 +25,11 @@
 
 #define BH1750_ADDR 0x23
 
-/*
- * One FRAM write transaction:
- *   2 bytes for the FRAM memory address
- *   Up to 32 bytes of actual FRAM data
+/**
+ * @brief Stores the state and data of an ongoing I2C transaction.
+ *
+ * Keeps track of the peripheral address, read/write direction,
+ * transaction number, bus ID, buffered write data and read position.
  */
 typedef struct {
     bool active;
@@ -45,6 +46,7 @@ typedef struct {
     uint16_t bus_id;
 } i2c_transaction_t;
 
+/** Holds the state of the currently active ACF-I2C transaction. */
 static i2c_transaction_t current_transaction;
 
 // For the BH1750
@@ -59,7 +61,14 @@ static void create_brief_response(
     uint8_t exception_code,
     uint8_t response_data);
 
-/* Create a Full-format response and copy request identifiers. */
+/**
+ * @brief Creates a Full-format ACF-I2C response message.
+ *
+ * Sets the specified response code, exception code and response data.
+ * Copies the transaction number, event information and I2C bus ID
+ * from the original request to ensure that the response belongs
+ * to the correct transaction.
+ */
 static void create_response(
     const Avtp_I2C_t *request,
     Avtp_I2C_t *response,
@@ -84,12 +93,16 @@ static void create_response(
 }
 
 
-/*
- * Process one Full-format ACF-I2C request.
+/**
+ * @brief Processes one Full-format ACF-I2C request.
  *
- * CR1 starts a transaction.
- * CR3 adds one data byte.
- * CR4 executes the buffered FRAM write.
+ * Validates the incoming message and processes its I2C command.
+ * Handles transaction initialization (CR1), write-data collection
+ * (CR3), read-address handling (CR5), write execution (CR4),
+ * and data reading (CR6 and CR7).
+ *
+ * Supports FRAM read/write operations and the BH1750 measurement
+ * and read sequence. Generates the corresponding ACF-I2C response.
  */
 static int process_full(
     const struct device *i2c_dev,
@@ -556,12 +569,16 @@ static int process_full(
 }
 
 
-/*
- * Process one Brief-format ACF-I2C request.
+/**
+ * @brief Processes one Brief-format ACF-I2C request.
  *
- * CR1 starts a transaction.
- * CR3 adds one data byte.
- * CR4 executes the buffered FRAM write.
+ * Validates the incoming Brief message and processes its I2C command.
+ * Handles transaction initialization (CR1), write-data collection
+ * (CR3), read-address handling (CR5), FRAM write execution (CR4),
+ * and final-byte reading (CR7).
+ *
+ * Supports FRAM read and write operations and generates the
+ * corresponding Brief-format ACF-I2C response.
  */
 static int process_brief(
     const struct device *i2c_dev,
@@ -866,7 +883,14 @@ static void create_brief_response(
 }
 
 
-/* Public dispatcher. */
+/**
+ * @brief Dispatches an ACF-I2C request to the appropriate message processor.
+ *
+ * Checks the requested message format and forwards Full-format
+ * messages to process_full() or Brief-format messages to process_brief().
+ * Returns an error if the request or response pointer is invalid
+ * or the message format is unsupported.
+ */
 int i2c_listener_process(
     const struct device *i2c_dev,
     i2c_message_format_t format,
