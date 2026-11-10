@@ -3,8 +3,8 @@
 
 #include "../Open1722/include/avtp/acf/I2C.h"
 #include "../Open1722/include/avtp/acf/I2CBrief.h"
-#include "i2c_listener.h"
-#include "i2c_test_listener.h"
+#include "i2C_listener.h"
+#include "i2C_test_listener.h"
 
 #define I2C_CODE_CR1  0
 #define I2C_CODE_TR2  9

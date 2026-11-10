@@ -1,4 +1,4 @@
-#include "i2c_listener.h"
+#include "i2C_listener.h"
 #include "fram.h"
 
 #include <zephyr/drivers/i2c.h>
