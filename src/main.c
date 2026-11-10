@@ -15,6 +15,13 @@
 #include "fram.h"
 #include "i2C_test_listener.h"
 #include "i2C_listener.h"
+#include <zephyr/net/net_if.h>
+#include <zephyr/net/net_ip.h>
+#include <errno.h>
+#include <zephyr/net/ethernet.h>
+#include <zephyr/net/net_pkt.h>
+#include <zephyr/net/net_core.h>
+
 
 #define I2C_NODE DT_NODELABEL(i2c1)
 // FRAM device parameters
@@ -24,6 +31,7 @@
 //BH1750 device parameters
 #define BH1750_ADDR       0x23 // connect the ADDR pin to GND for 0x23 or VCC for 0x5C
 #define BH1750_ONETIME_HR 0x20 // after one measurement, the device goes to low-power sleep state (it does not measure continuously), high-resolution: The sensor uses a more precise measurement mode, with a typical resolution of 1 lux.
+
 
 int main(void)
 {
