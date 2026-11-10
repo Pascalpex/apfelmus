@@ -11,7 +11,6 @@
 #include <zephyr/posix/unistd.h>
 
 #include "i2c1722.h"
-#include "i2c1722_proto.h"
 
 LOG_MODULE_REGISTER(i2c1722_target, LOG_LEVEL_INF);
 
@@ -66,45 +65,13 @@ static int create_listener_socket_udp(uint32_t udp_port)
  */
 static void execute_i2c(const Avtp_I2C_t *req, Avtp_I2C_t *rsp, int n)
 {
-    uint8_t buf[MAX_I2C_MSGS]; /* buf[i] = data byte of request message i */
-    int rd = 0;                /* index of the START message of the read part */
-
-    for (int i = 0; i < n; i++)
-    {
-        buf[i] = Avtp_I2C_GetI2CData(&req[i]);
-        if (i > 0 && (Avtp_I2C_GetEvt(&req[i]) & I2C1722_EVT_START))
-        {
-            rd = i;
-        }
-    }
-
-    uint16_t addr = buf[0] >> 1;
-    int ret = -EINVAL;
-    if (rd > 0)
-    {
-        ret = i2c_write_read(i2c_bus, addr, &buf[1], rd - 1, &buf[rd + 1], n - rd - 1);
-    }
-    LOG_INF("  i2c_write_read addr=0x%02x: ret=%d", addr, ret);
-
-    /* Response: copy of the request with the read bytes filled in and the result */
-    for (int i = 0; i < n; i++)
-    {
-        rsp[i] = req[i];
-        Avtp_I2C_SetI2CData(&rsp[i], buf[i]);
-        Avtp_I2C_SetExceptionCode(&rsp[i], ret == 0 ? I2C1722_EXC_OK : I2C1722_EXC_NACK);
-    }
+    /*TODO*/
+    return;
 }
 
 int main(void)
 {
     LOG_INF("i2c1722 target");
-
-    if (!device_is_ready(i2c_bus))
-    {
-        LOG_ERR("I2C bus %s not ready", i2c_bus->name);
-        return 0;
-    }
-    LOG_INF("I2C requests are executed on %s", i2c_bus->name);
 
     int fd = create_listener_socket_udp(I2C1722_UDP_PORT);
     if (fd < 0)
