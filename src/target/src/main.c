@@ -59,9 +59,7 @@ static int create_listener_socket_udp(uint32_t udp_port)
 }
 
 /*
- * Executes the request messages of one frame as one register read with i2c_write_read():
- *   START addr+W, write bytes..., START addr+R, read bytes...
- * and fills one response message per request message. Encoding see i2c1722_proto.h.
+ * TODO
  */
 static void execute_i2c(const Avtp_I2C_t *req, Avtp_I2C_t *rsp, int n)
 {
