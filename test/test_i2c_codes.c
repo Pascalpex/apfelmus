@@ -7,7 +7,13 @@
 #include <stddef.h>
 #include <setjmp.h>
 #include <stdint.h>
+#if defined(__cplusplus)
+extern "C" {
 #include <cmocka.h>
+}
+#else
+#include <cmocka.h>
+#endif
 #include <string.h>
 
 #include "avtp/acf/I2C.h"
