@@ -1,0 +1,10 @@
+/*
+ * I2C bus the ACF_I2C requests are executed on (DT_ALIAS(i2c1722_bus) in main.c).
+ * Real hardware: i2c1 = PB8 SCL / PB9 SDA (Arduino D15 / D14).
+ * With I2C1722_EMUL=ON, emul/emul.overlay points this alias to the emulated bus instead.
+ */
+/ {
+	aliases {
+		i2c1722-bus = &i2c1;
+	};
+};

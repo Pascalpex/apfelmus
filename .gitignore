@@ -1,6 +1,17 @@
+# --- Zephyr / CMake build output ---
 build/
 .vscode/
+build-*/
+twister-out*/
+CMakeCache.txt
+CMakeFiles/
+cmake-build-*/
+compile_commands.json
 
+# --- Controller binary ---
+src/controller/controller
+
+# --- C/C++ build artifacts ---
 *.o
 *.obj
 *.a
@@ -11,3 +22,19 @@ build/
 *.map
 *.d
 *.su
+
+# --- Python ---
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+
+# --- Editor / IDE ---
+.vscode/
+.idea/
+*.swp
+*~
+
+# --- OS ---
+.DS_Store
+Thumbs.db
