@@ -9,6 +9,7 @@
 #include <zephyr/posix/arpa/inet.h>
 #include <zephyr/posix/sys/socket.h>
 #include <zephyr/posix/unistd.h>
+#include "i2C_listener.h"
 
 #include "i2c1722.h"
 
@@ -58,13 +59,30 @@ static int create_listener_socket_udp(uint32_t udp_port)
     return fd;
 }
 
-/*
- * TODO
- */
-static void execute_i2c(const Avtp_I2C_t *req, Avtp_I2C_t *rsp, int n)
+
+
+static void execute_i2c(
+    const Avtp_I2C_t *req,
+    Avtp_I2C_t *rsp,
+    int n)
 {
-    /*TODO*/
-    return;
+    // process each request message and generate a response message
+    for (int i = 0; i < n; i++) {
+
+        // store the response in rsp[i]
+        int ret = i2c_listener_process(
+            i2c_bus,
+            I2C_FORMAT_FULL,
+            &req[i],
+            sizeof(req[i]),
+            &rsp[i],
+            sizeof(rsp[i])
+        );
+
+        if (ret < 0) {
+            LOG_ERR("I2C request %d failed: %d", i, ret);
+        }
+    }
 }
 
 int main(void)

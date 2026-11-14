@@ -1,5 +1,6 @@
 # --- Zephyr / CMake build output ---
 build/
+.vscode/
 build-*/
 twister-out*/
 CMakeCache.txt
