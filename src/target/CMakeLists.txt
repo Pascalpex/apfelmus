@@ -16,6 +16,9 @@ target_include_directories(app PRIVATE
 )
 target_sources(app PRIVATE
     src/main.c
+    src/i2C_listener.c
+    src/fram.c
+    src/bh1750.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../common/i2c1722.c
 )
 

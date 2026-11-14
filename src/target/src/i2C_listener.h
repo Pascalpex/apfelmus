@@ -12,8 +12,8 @@
 #include "fram.h"
 #include "bh1750.h"
 
-#include "../Open1722/include/avtp/acf/I2C.h"
-#include "../Open1722/include/avtp/acf/I2CBrief.h"
+#include <avtp/acf/I2C.h>
+#include <avtp/acf/I2CBrief.h>
 
 typedef enum {
     I2C_FORMAT_FULL,
