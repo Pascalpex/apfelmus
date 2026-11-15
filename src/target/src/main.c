@@ -116,9 +116,9 @@ int main(void)
         // extracts the ACF-I2C messages from the received UDP packet
         int n = avtp_to_i2c(rx_buf, (size_t)len, 1, I2C1722_CONTROLLER_STREAM_ID, msgs,
                             MAX_I2C_MSGS, &seq);
-        if (n < 0)
-        {
-            LOG_WRN("Dropped %d-byte frame (not a valid ACF_I2C frame of our stream)", (int)len);
+                            
+        if (n < 0 || n > MAX_I2C_MSGS) {
+            LOG_ERR("Invalid number of I2C messages: %d", n);
             continue;
         }
 
