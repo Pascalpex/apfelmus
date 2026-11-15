@@ -139,7 +139,7 @@ static int process_full(
                 I2C_EXCEPTION_NONE,
                 0
             );
-            return 0;
+            return 1;
         }
 
         /* Start a new transaction. */
@@ -163,7 +163,7 @@ static int process_full(
                 0
             );
 
-            return 0;
+            return 1;
         }
 
         /* CR1 accepted: return TR2 (ACK). */
@@ -175,7 +175,7 @@ static int process_full(
             0
         );
 
-        return 0;
+        return 1;
     }
 
     /* All following commands require an active transaction. */
@@ -190,7 +190,7 @@ static int process_full(
             0
         );
 
-        return 0;
+        return 1;
     }
 
     /* -------------------------------------------------
@@ -210,7 +210,7 @@ static int process_full(
                 0
             );
 
-            return 0;
+            return 1;
         }
 
         current_transaction.write_data[
@@ -226,7 +226,7 @@ static int process_full(
             0
         );
 
-        return 0;
+        return 1;
     }
     /* -------------------------------------------------
      * CR5: End write phase and restart with read address.
@@ -244,16 +244,15 @@ static int process_full(
                 0,
                 0
             );
-            return 0;
+            return 1;
         }
 
         uint8_t address_data = Avtp_I2C_GetI2CData(request);
         uint8_t address = address_data >> 1;
         bool read = (address_data & 0x01U) != 0U;
 
-        if (address != FRAM_ADDR &&
-            address != BH1750_ADDR) {
-
+        /* Only allow a FRAM read address here. */
+        if (address != FRAM_ADDR || !read) {
             current_transaction.active = false;
 
             create_response(
@@ -263,7 +262,21 @@ static int process_full(
                 0
             );
 
-            return 0;
+            return 1;
+        }
+
+        // check that the write data is received
+        if (current_transaction.write_length < 2) {
+            current_transaction.active = false;
+
+            create_response(
+                request, response,
+                I2C_CODE_TR1,
+                I2C_EXCEPTION_SEQUENCE,
+                0
+            );
+
+            return 1;
         }
 
         current_transaction.fram_read_address =
@@ -284,7 +297,7 @@ static int process_full(
                     0
                 );
 
-                return 0;
+                return 1;
             }
 
             current_transaction.read = true;
@@ -298,7 +311,7 @@ static int process_full(
             0
         );
 
-        return 0;
+        return 1;
     }
 
     /* -------------------------------------------------
@@ -320,7 +333,7 @@ static int process_full(
                     0
                 );
 
-                return 0;
+                return 1;
             }
 
             uint16_t raw_value;
@@ -342,7 +355,7 @@ static int process_full(
                     0
                 );
 
-                return ret;
+                return 1;
             }
 
             bh1750_cached_data[0] =
@@ -375,7 +388,7 @@ static int process_full(
                 0
             );
 
-            return 0;
+            return 1;
         }
 
         uint16_t fram_address =
@@ -401,7 +414,7 @@ static int process_full(
                 I2C_EXCEPTION_NONE,
                 0
             );
-            return ret;
+            return 1;
         }
 
         /*
@@ -415,6 +428,7 @@ static int process_full(
                 I2C_EXCEPTION_NONE,
                 0
             );
+            return 1;
         }
 
         return 0;
@@ -427,7 +441,17 @@ static int process_full(
 
             if (!current_transaction.read ||
                 current_transaction.read_count >= 2) {
-                return -EINVAL;
+
+                current_transaction.active = false;
+
+                create_response(
+                    request, response,
+                    I2C_CODE_TR1,
+                    I2C_EXCEPTION_SEQUENCE,
+                    0
+                );
+
+                return 1;
             }
 
             uint8_t read_data =
@@ -442,7 +466,7 @@ static int process_full(
                 read_data
             );
 
-            return 0;
+            return 1;
         }
 
         if (!current_transaction.read) {
@@ -454,7 +478,7 @@ static int process_full(
                 I2C_EXCEPTION_SEQUENCE,
                 0
             );
-            return 0;
+            return 1;
         }
 
         uint8_t read_data = 0;
@@ -489,7 +513,7 @@ static int process_full(
             read_data
         );
 
-        return 0;
+        return 1;
     }
     /* -------------------------------------------------
     * CR7: Read final byte, NACK and STOP.
@@ -501,7 +525,14 @@ static int process_full(
             if (!current_transaction.read ||
                 current_transaction.read_count != 1) {
                 current_transaction.active = false;
-                return -EINVAL;
+                create_response(
+                    request, response,
+                    I2C_CODE_TR1,
+                    I2C_EXCEPTION_SEQUENCE,
+                    0
+                );
+
+                return 1;
             }
 
             uint8_t read_data = bh1750_cached_data[1];
@@ -516,7 +547,7 @@ static int process_full(
                 read_data
             );
 
-            return 0;
+            return 1;
         }
         if (!current_transaction.read) {
             current_transaction.active = false;
@@ -528,7 +559,7 @@ static int process_full(
                 0
             );
 
-            return 0;
+            return 1;
         }
 
         uint8_t read_data = 0;
@@ -551,7 +582,7 @@ static int process_full(
                 0
             );
 
-            return ret;
+            return 1;
         }
 
         /* TR3 returns the byte read from the FRAM. */
@@ -562,7 +593,7 @@ static int process_full(
             read_data
         );
 
-        return 0;
+        return 1;
     }
     /* Other commands are not implemented yet. */
     return -ENOTSUP;

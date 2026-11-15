@@ -61,11 +61,13 @@ static int create_listener_socket_udp(uint32_t udp_port)
 
 
 
-static void execute_i2c(
+static size_t execute_i2c(
+    const struct device *i2c_bus,
     const Avtp_I2C_t *req,
     Avtp_I2C_t *rsp,
     int n)
 {
+     size_t rsp_count = 0;
     // process each request message and generate a response message
     for (int i = 0; i < n; i++) {
 
@@ -76,13 +78,16 @@ static void execute_i2c(
             &req[i],
             sizeof(req[i]),
             &rsp[i],
-            sizeof(rsp[i])
+            sizeof(rsp[rsp_count])
         );
 
-        if (ret < 0) {
-            LOG_ERR("I2C request %d failed: %d", i, ret);
+        if (ret == 1) {
+            rsp_count++;
+        } else if (ret < 0) {
+            LOG_ERR("I2C request %zu failed: %d", i, ret);
         }
     }
+    return rsp_count; //the listener returns 1 whenever it has filled a response structure
 }
 
 int main(void)
@@ -100,7 +105,7 @@ int main(void)
     {
         struct sockaddr_in src;
         socklen_t src_len = sizeof(src);
-        ssize_t len = recvfrom(fd, rx_buf, sizeof(rx_buf), 0, (struct sockaddr *)&src, &src_len);
+        ssize_t len = recvfrom(fd, rx_buf, sizeof(rx_buf), 0, (struct sockaddr *)&src, &src_len); //if a message is received it is stored in rx_buf and the length of the message is returned in len
         if (len < 0)
         {
             LOG_ERR("recvfrom() failed: %d", errno);
@@ -108,6 +113,7 @@ int main(void)
         }
 
         uint32_t seq;
+        // extracts the ACF-I2C messages from the received UDP packet
         int n = avtp_to_i2c(rx_buf, (size_t)len, 1, I2C1722_CONTROLLER_STREAM_ID, msgs,
                             MAX_I2C_MSGS, &seq);
         if (n < 0)
@@ -130,17 +136,21 @@ int main(void)
         }
 
         /* Run the requests on the I2C bus, one response message per request message */
-        execute_i2c(msgs, rsp_msgs, n);
+        size_t rsp_count = execute_i2c(i2c_bus, msgs, rsp_msgs, n);
 
-        int rsp_len = i2c_to_avtp(tx_buf, sizeof(tx_buf), 1, AVTPDU_VERSION_0,
-                                  I2C1722_TARGET_STREAM_ID, tx_seq++, rsp_msgs, (uint8_t)n);
-        if (rsp_len < 0 ||
-            sendto(fd, tx_buf, (size_t)rsp_len, 0, (struct sockaddr *)&src, src_len) < 0)
-        {
-            LOG_ERR("Sending response failed: %d", errno);
-            continue;
+        // pack the i2C response messages into an ACF-I2C frame and send it back to the requester
+        /* Encode and send only if responses exist */
+        if (rsp_count > 0) {
+            int rsp_len = i2c_to_avtp(tx_buf, sizeof(tx_buf), 1, AVTPDU_VERSION_0,
+                                  I2C1722_TARGET_STREAM_ID, tx_seq++, rsp_msgs, (uint8_t)rsp_count);
+            if (rsp_len < 0 ||
+                sendto(fd, tx_buf, (size_t)rsp_len, 0, (struct sockaddr *)&src, src_len) < 0)
+            {
+                LOG_ERR("Sending response failed: %d", errno);
+                continue;
+            }
+            LOG_INF("Response seq=%u sent to %s: %d ACF_I2C message(s)", tx_seq - 1, ip, n);
         }
-        LOG_INF("Response seq=%u sent to %s: %d ACF_I2C message(s)", tx_seq - 1, ip, n);
     }
     return 0;
 }
