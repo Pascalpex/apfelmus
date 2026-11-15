@@ -10,6 +10,7 @@
 #define I2C_CODE_CR3  2
 #define I2C_CODE_CR4  3
 #define I2C_CODE_CR5  4
+#define I2C_CODE_CR6  5
 #define I2C_CODE_CR7  6
 
 /* ACF-I2C response codes */
@@ -240,7 +241,7 @@ static int process_full(
             create_response(
                 request,
                 response,
-                8,      /* TR1: NACK */
+                I2C_CODE_TR1,      /* TR1: NACK */
                 0,
                 0
             );
@@ -285,24 +286,6 @@ static int process_full(
 
         current_transaction.read_count = 0;
         current_transaction.read = true;
-
-        if (address == BH1750_ADDR && read) {
-            if (!bh1750_data_valid) {
-                current_transaction.active = false;
-
-                create_response(
-                    request, response,
-                    I2C_CODE_TR1,
-                    I2C_EXCEPTION_SEQUENCE,
-                    0
-                );
-
-                return 1;
-            }
-
-            current_transaction.read = true;
-            current_transaction.read_count = 0;
-        }
 
         create_response(
             request, response,
@@ -373,6 +356,7 @@ static int process_full(
                     I2C_EXCEPTION_NONE,
                     0
                 );
+                return 1;
             }
 
             return 0;
@@ -435,7 +419,7 @@ static int process_full(
     }
 
     /* CR6: Read one byte and continue. */
-    if (code == 5) {
+    if (code == I2C_CODE_CR6) {
 
         if (current_transaction.address == BH1750_ADDR) {
 
@@ -501,7 +485,7 @@ static int process_full(
                 0
             );
 
-            return ret;
+            return 1;
         }
 
         current_transaction.read_count++;
@@ -518,7 +502,7 @@ static int process_full(
     /* -------------------------------------------------
     * CR7: Read final byte, NACK and STOP.
     * ------------------------------------------------- */
-    if (code == 6) {
+    if (code == I2C_CODE_CR7) {
 
         if (current_transaction.address == BH1750_ADDR) {
 
