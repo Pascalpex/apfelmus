@@ -92,5 +92,10 @@ function(add_dual_test TEST_NAME SOURCE_FILE)
     add_dependencies(unittests ${TEST_NAME} ${TEST_NAME}-cpp)
 endfunction()
 
+# Code under test from src/common
+add_library(i2c1722 STATIC ../src/common/i2c1722.c)
+target_include_directories(i2c1722 PUBLIC ../Open1722/include ../src/common)
+
 # Create dual tests for all modules
 add_dual_test(test_i2c_codes test_i2c_codes.c)
+add_dual_test(test_i2c1722 test_i2c1722.c i2c1722)
