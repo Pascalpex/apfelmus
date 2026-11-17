@@ -15,16 +15,15 @@
 
 LOG_MODULE_REGISTER(i2c1722_target, LOG_LEVEL_INF);
 
-#define MAX_I2C_MSGS 16
 
-/* I2C bus the requests are executed on*/
+/* I2C bus the requests are executed on (ACF_I2C bus ID 0) */
 static const struct device *i2c_bus = DEVICE_DT_GET(DT_ALIAS(i2c1722_bus));
 
 /* static: keeps the buffers off the main stack */
-static uint8_t rx_buf[I2C1722_PDU_SIZE(MAX_I2C_MSGS)];
-static Avtp_I2C_t msgs[MAX_I2C_MSGS];
-static uint8_t tx_buf[I2C1722_PDU_SIZE(MAX_I2C_MSGS)];
-static Avtp_I2C_t rsp_msgs[MAX_I2C_MSGS];
+static uint8_t rx_buf[I2C1722_PDU_SIZE(I2C1722_MAX_MSGS)];
+static Avtp_I2C_t msgs[I2C1722_MAX_MSGS];
+static uint8_t tx_buf[I2C1722_PDU_SIZE(I2C1722_MAX_MSGS)];
+static Avtp_I2C_t rsp_msgs[I2C1722_MAX_MSGS];
 static uint32_t tx_seq; /* sequence number of the target's own stream */
 
 /* from create_listener_socket_udp() in Open1722 examples/acf-can/zephyr */
@@ -61,35 +60,6 @@ static int create_listener_socket_udp(uint32_t udp_port)
 
 
 
-static size_t execute_i2c(
-    const struct device *i2c_bus,
-    const Avtp_I2C_t *req,
-    Avtp_I2C_t *rsp,
-    int n)
-{
-     size_t rsp_count = 0;
-    // process each request message and generate a response message
-    for (int i = 0; i < n; i++) {
-
-        // store the response in rsp[i]
-        int ret = i2c_listener_process(
-            i2c_bus,
-            I2C_FORMAT_FULL,
-            &req[i],
-            sizeof(req[i]),
-            &rsp[i],
-            sizeof(rsp[rsp_count])
-        );
-
-        if (ret == 1) {
-            rsp_count++;
-        } else if (ret < 0) {
-            LOG_ERR("I2C request %zu failed: %d", i, ret);
-        }
-    }
-    return rsp_count; //the listener returns 1 whenever it has filled a response structure
-}
-
 int main(void)
 {
     LOG_INF("i2c1722 target");
@@ -115,9 +85,9 @@ int main(void)
         uint32_t seq;
         // extracts the ACF-I2C messages from the received UDP packet
         int n = avtp_to_i2c(rx_buf, (size_t)len, 1, I2C1722_CONTROLLER_STREAM_ID, msgs,
-                            MAX_I2C_MSGS, &seq);
+                            I2C1722_MAX_MSGS, &seq);
                             
-        if (n < 0 || n > MAX_I2C_MSGS) {
+        if (n < 0) {
             LOG_ERR("Invalid number of I2C messages: %d", n);
             continue;
         }
@@ -126,17 +96,8 @@ int main(void)
         inet_ntop(AF_INET, &src.sin_addr, ip, sizeof(ip));
         LOG_INF("Frame seq=%u from %s: %d ACF_I2C message(s)", seq, ip, n);
 
-        for (int i = 0; i < n; i++)
-        {
-            const Avtp_I2C_t *m = &msgs[i];
-            LOG_INF("  [%d] bus=%u code=0x%x trr=%d txn=%u evt=0x%x exc=0x%x data=0x%02x", i,
-                    Avtp_I2C_GetI2CBusId(m), Avtp_I2C_GetI2CCode(m), Avtp_I2C_IsTrr(m),
-                    Avtp_I2C_GetTransactionNum(m), Avtp_I2C_GetEvt(m),
-                    Avtp_I2C_GetExceptionCode(m), Avtp_I2C_GetI2CData(m));
-        }
-
         /* Run the requests on the I2C bus, one response message per request message */
-        size_t rsp_count = execute_i2c(i2c_bus, msgs, rsp_msgs, n);
+        size_t rsp_count = i2c_listener_execute(i2c_bus, msgs, rsp_msgs, (size_t)n);
 
         // pack the i2C response messages into an ACF-I2C frame and send it back to the requester
         /* Encode and send only if responses exist */
@@ -149,7 +110,7 @@ int main(void)
                 LOG_ERR("Sending response failed: %d", errno);
                 continue;
             }
-            LOG_INF("Response seq=%u sent to %s: %d ACF_I2C message(s)", tx_seq - 1, ip, n);
+            LOG_INF("Response seq=%u sent to %s: %d ACF_I2C message(s)", tx_seq - 1, ip, (int)rsp_count);
         }
     }
     return 0;

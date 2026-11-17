@@ -1,212 +1,205 @@
-/* Controller (laptop): reads the temperature of the I2C sensor on the target over IEEE 1722. */
-#include <netdb.h>
+/*
+ * Controller (laptop): accesses I2C peripherals on the target over IEEE 1722 (ACF_I2C).
+ * The target only replays the bus primitives, all device knowledge lives here:
+ *   udp_link.c  transport (1722 over UDP)
+ *   fram.c      MB85RC256V FRAM
+ *   bh1750.c    BH1750 light sensor
+ *   mpu6050.c   MPU-6050 accelerometer/gyroscope
+ *   oled.c      128x64 OLED display
+ *   display.c   16x2 character LCD (HD44780 + PCF8574)
+ */
+#include <ctype.h>
 #include <stdio.h>
-#include <sys/socket.h>
-#include <sys/time.h>
+#include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 
 #include "i2c1722.h"
+#include "udp_link.h"
+#include "fram.h"
+#include "bh1750.h"
+#include "mpu6050.h"
+#include "oled.h"
+#include "display.h"
 
-#define MAX_I2C_MSGS 16
-#define I2C_CODE_CR1 0
-#define I2C_CODE_CR3 2
-#define I2C_CODE_CR4 3
-#define I2C_CODE_CR5 4
-#define I2C_CODE_CR6 5
-#define I2C_CODE_CR7 6
+#define FRAM_TEST_ADDR  0x0010 /* FRAM memory address used by the commands */
+#define SENSOR_PERIOD_S 5      /* sensor polling period in seconds */
 
-#define I2C_CODE_TRR true
-
-#define FRAM_ADDR  0x50
-#define BH1750_ADDR 0x23
-
-/* Appends one ACF_I2C message and returns the new count. */
-static int add_msg(Avtp_I2C_t *msgs, int n,    uint8_t code,
-    bool trr, uint8_t txn, uint8_t evt, uint8_t data)
+static void cmd_fram_write(struct i2c1722_link *link, const char *text)
 {
-    Avtp_I2C_CreateAcfMessage(&msgs[n], code, trr, txn, evt, /*TODO*/ 0, data);
-    Avtp_I2C_SetI2CBusId(&msgs[n], 0);
-    return n + 1;
+    size_t len = strlen(text);
+    int ret = fram_write(link, FRAM_TEST_ADDR, (const uint8_t *)text, len);
+    printf("FRAM write \"%s\" (%zu bytes) @0x%04x: %s\n", text, len, FRAM_TEST_ADDR,
+           ret == 0 ? "OK" : "FAILED");
 }
 
-/*
- * Sends one frame of request messages and receives the response.
- * Returns the number of response messages, or -1 on error.
- */
-static int transfer(int fd, const struct addrinfo *target, uint32_t seq,
-                    const Avtp_I2C_t *req, int nreq, Avtp_I2C_t *rsp)
+static void cmd_fram_read(struct i2c1722_link *link, size_t len)
 {
-    // Pack into a 1722 frame and send
-    uint8_t pdu[I2C1722_PDU_SIZE(MAX_I2C_MSGS)];
-    int len = i2c_to_avtp(pdu, sizeof(pdu), 1, AVTPDU_VERSION_0, I2C1722_CONTROLLER_STREAM_ID,
-                          seq, req, (uint8_t)nreq);
-    if (send(fd, pdu, (size_t)len, 0) < 0) {
-        perror("send");
-        return -1;
-    }
-    printf("Sent %d bytes (%d ACF_I2C messages)\n", len, nreq);
+    uint8_t data[256];
 
-    // Receive and unpack the response
-    uint8_t rx[I2C1722_PDU_SIZE(MAX_I2C_MSGS)];
-    ssize_t n = recv(fd, rx, sizeof(rx), 0);
-    if (n < 0)
+    if (len == 0 || len > sizeof(data))
     {
-        printf("No response\n");
-        return -1;
+        printf("FRAM read: length must be 1..%zu\n", sizeof(data));
+        return;
     }
-
-    uint32_t rsp_seq;
-    int m = avtp_to_i2c(rx, (size_t)n, 1, I2C1722_TARGET_STREAM_ID, rsp, MAX_I2C_MSGS, &rsp_seq);
-    if (m < 0)
+    if (fram_read(link, FRAM_TEST_ADDR, data, len) != 0)
     {
-        printf("Invalid response (%zd bytes)\n", n);
-        return -1;
+        printf("FRAM read FAILED\n");
+        return;
     }
-
-    printf("Response seq=%u: %d ACF_I2C message(s)\n", rsp_seq, m);
-    for (int i = 0; i < m; i++)
+    printf("FRAM read %zu bytes @0x%04x:", len, FRAM_TEST_ADDR);
+    for (size_t i = 0; i < len; i++)
     {
-        printf("  [%d] bus=%u code=0x%x trr=%d txn=%u evt=0x%x exc=0x%x data=0x%02x\n", i,
-               Avtp_I2C_GetI2CBusId(&rsp[i]), Avtp_I2C_GetI2CCode(&rsp[i]),
-               Avtp_I2C_IsTrr(&rsp[i]), Avtp_I2C_GetTransactionNum(&rsp[i]),
-               Avtp_I2C_GetEvt(&rsp[i]), Avtp_I2C_GetExceptionCode(&rsp[i]),
-               Avtp_I2C_GetI2CData(&rsp[i]));
+        printf(" %02x", data[i]);
     }
-    return m;
-}
-
-static void fram_write(
-    int fd,
-    const struct addrinfo *target,
-    uint32_t seq
-)
-{
-    Avtp_I2C_t req[MAX_I2C_MSGS];
-    Avtp_I2C_t rsp[MAX_I2C_MSGS];
-
-    int n = 0;
-    uint8_t txn = 1;
-
-    n = add_msg(req, n, I2C_CODE_CR1, true, txn, 0,
-                (FRAM_ADDR << 1));
-
-    n = add_msg(req, n, I2C_CODE_CR3, true, txn, 0, 0x00);
-    n = add_msg(req, n, I2C_CODE_CR3, true, txn, 0, 0x10);
-    n = add_msg(req, n, I2C_CODE_CR3, true, txn, 0, 0x42);
-
-    n = add_msg(req, n, I2C_CODE_CR4, true, txn, 0, 0);
-
-    transfer(fd, target, seq, req, n, rsp);
-}
-
-static void fram_read(
-    int fd,
-    const struct addrinfo *target,
-    uint32_t seq
-)
-{
-    Avtp_I2C_t req[MAX_I2C_MSGS];
-    Avtp_I2C_t rsp[MAX_I2C_MSGS];
-
-    int n = 0;
-    uint8_t txn = 2;
-
-    n = add_msg(req, n, I2C_CODE_CR1, true, txn, 0,
-                (FRAM_ADDR << 1));
-
-    n = add_msg(req, n, I2C_CODE_CR3, true, txn, 0, 0x00);
-    n = add_msg(req, n, I2C_CODE_CR3, true, txn, 0, 0x10);
-
-    n = add_msg(req, n, I2C_CODE_CR5, true, txn, 0,
-                (FRAM_ADDR << 1) | 1);
-
-    n = add_msg(req, n, I2C_CODE_CR6, true, txn, 0, 0);
-    n = add_msg(req, n, I2C_CODE_CR7, true, txn, 0, 0);
-
-    int count = transfer(fd, target, seq, req, n, rsp);
-
-    if (count > 0) {
-        printf("FRAM read completed. Check the returned TR3 data bytes.\n");
+    printf("  \"");
+    for (size_t i = 0; i < len; i++)
+    {
+        putchar(isprint(data[i]) ? data[i] : '.');
     }
+    printf("\"\n");
 }
 
-static void bh1750_read(
-    int fd,
-    const struct addrinfo *target,
-    uint32_t seq
-)
+static void cmd_bh1750(struct i2c1722_link *link)
 {
-    Avtp_I2C_t req[MAX_I2C_MSGS];
-    Avtp_I2C_t rsp[MAX_I2C_MSGS];
+    uint16_t raw;
 
-    int n = 0;
-    uint8_t txn = 3;
+    if (bh1750_read_raw(link, &raw) != 0)
+    {
+        printf("BH1750 read FAILED\n");
+        return;
+    }
+    printf("BH1750: raw=%u -> %.1f lx\n", raw, BH1750_RAW_TO_LUX(raw));
+}
 
-    /* Start measurement */
-    n = add_msg(req, n, I2C_CODE_CR1, true, txn, 0,
-                (BH1750_ADDR << 1));
+static void cmd_mpu6050(struct i2c1722_link *link)
+{
+    struct mpu6050_raw r;
 
-    n = add_msg(req, n, I2C_CODE_CR3, true, txn, 0, 0x20);
+    if (mpu6050_read_raw(link, &r) != 0)
+    {
+        printf("MPU6050 read FAILED\n");
+        return;
+    }
+    printf("MPU6050: accel [g]   x=%6.2f y=%6.2f z=%6.2f\n",
+           MPU6050_ACCEL_TO_G(r.accel[0]), MPU6050_ACCEL_TO_G(r.accel[1]), MPU6050_ACCEL_TO_G(r.accel[2]));
+    printf("         gyro [°/s]  x=%6.1f y=%6.1f z=%6.1f\n",
+           MPU6050_GYRO_TO_DPS(r.gyro[0]), MPU6050_GYRO_TO_DPS(r.gyro[1]), MPU6050_GYRO_TO_DPS(r.gyro[2]));
+    printf("         temp        %.1f °C\n", MPU6050_TEMP_TO_C(r.temp));
+}
 
-    n = add_msg(req, n, I2C_CODE_CR4, true, txn, 0, 0);
+static int oled_show(struct i2c1722_link *link, const char *text)
+{
+    if (strlen(text) > OLED_MAX_CHARS)
+    {
+        printf("OLED: text cut to %d characters\n", OLED_MAX_CHARS);
+    }
+    return oled_clear(link) || oled_print_centered(link, 3, text);
+}
 
-    /* Read measurement */
-    n = add_msg(req, n, I2C_CODE_CR1, true, txn, 0,
-                (BH1750_ADDR << 1) | 1);
+static int lcd_show(struct i2c1722_link *link, const char *text)
+{
+    return lcd_clear(link) || lcd_print(link, text);
+}
 
-    n = add_msg(req, n, I2C_CODE_CR6, true, txn, 0, 0);
-    n = add_msg(req, n, I2C_CODE_CR7, true, txn, 0, 0);
+/* Reads lines from stdin and passes them to show() until "q!" or EOF */
+static void display_loop(struct i2c1722_link *link,
+                         int (*show)(struct i2c1722_link *, const char *))
+{
+    char line[128];
 
-    int count = transfer(fd, target, seq, req, n, rsp);
-
-    if (count > 0) {
-        printf("BH1750 response received. Check the returned TR3 data bytes.\n");
+    printf("Type text to display, \"q!\" to quit\n");
+    for (;;)
+    {
+        printf("> ");
+        fflush(stdout);
+        if (!fgets(line, sizeof(line), stdin))
+        {
+            break; /* EOF */
+        }
+        line[strcspn(line, "\r\n")] = '\0';
+        if (strcmp(line, "q!") == 0)
+        {
+            break;
+        }
+        if (show(link, line) != 0)
+        {
+            printf("write FAILED\n");
+        }
     }
 }
 
+/* Calls read_sensor() every SENSOR_PERIOD_S seconds until Ctrl-C */
+static void sensor_loop(struct i2c1722_link *link, void (*read_sensor)(struct i2c1722_link *))
+{
+    for (;;)
+    {
+        read_sensor(link);
+        sleep(SENSOR_PERIOD_S);
+    }
+}
 
 int main(int argc, char *argv[])
 {
-    if (argc < 2)
+    if (argc < 3)
     {
-        fprintf(stderr, "Usage: %s <target-ip-or-hostname>\n", argv[0]);
+        fprintf(stderr, "Usage: %s <target-ip-or-hostname> "
+                        "<oled | display | bh1750 | mpu6050 | fram_write [text] | fram_read [len]>\n",
+                argv[0]);
         return 1;
     }
+    const char *cmd = argv[2];
+    const char *arg = argc > 3 ? argv[3] : NULL;
 
-    // Target address: IP or hostname (apfelmus.local)
-    char port[6];
-    snprintf(port, sizeof(port), "%d", I2C1722_UDP_PORT);
-    struct addrinfo hints = {.ai_family = AF_INET, .ai_socktype = SOCK_DGRAM};
-    struct addrinfo *target;
-    if (getaddrinfo(argv[1], port, &hints, &target) != 0)
+    struct i2c1722_link link;
+    if (udp_link_open(&link, argv[1]) != 0)
     {
-        fprintf(stderr, "Cannot resolve %s\n", argv[1]);
         return 1;
     }
 
-    // UDP socket, wait at most 1 s for the response
-    int fd = socket(AF_INET, SOCK_DGRAM, 0);
-    if (fd < 0) {
-        perror("socket");
-        return 1;
+    if (strcmp(cmd, "fram_write") == 0)
+    {
+        cmd_fram_write(&link, arg ? arg : "HELLO");
+    }
+    else if (strcmp(cmd, "fram_read") == 0)
+    {
+        cmd_fram_read(&link, arg ? (size_t)strtoul(arg, NULL, 0) : 5);
+    }
+    else if (strcmp(cmd, "bh1750") == 0)
+    {
+        sensor_loop(&link, cmd_bh1750);
+    }
+    else if (strcmp(cmd, "mpu6050") == 0)
+    {
+        sensor_loop(&link, cmd_mpu6050);
+    }
+    else if (strcmp(cmd, "oled") == 0)
+    {
+        if (oled_init(&link) != 0)
+        {
+            printf("OLED init FAILED (check address 0x%02X / wiring)\n", OLED_ADDR);
+        }
+        else
+        {
+            display_loop(&link, oled_show);
+        }
+    }
+    else if (strcmp(cmd, "display") == 0)
+    {
+        if (lcd_init(&link) != 0)
+        {
+            printf("LCD init FAILED\n");
+        }
+        else
+        {
+            display_loop(&link, lcd_show);
+        }
+    }
+    else
+    {
+        fprintf(stderr, "Unknown command: %s\n", cmd);
     }
 
-    if (connect(fd, target->ai_addr, target->ai_addrlen) < 0) {
-        perror("connect");
-        close(fd);
-        freeaddrinfo(target);
-        return 1;
-    }
-
-    struct timeval timeout = {.tv_sec = 1};
-    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
-
-    /*TODO I2C here best with*/
-    fram_write(fd, target, 0);
-    // fram_read(fd, target, 1);
-    // bh1750_read(fd, target, 2);
-
-    freeaddrinfo(target);
-    close(fd);
+    udp_link_close(&link);
     return 0;
 }

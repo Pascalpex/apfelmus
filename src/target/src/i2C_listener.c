@@ -1,943 +1,139 @@
 #include "i2C_listener.h"
-#include "fram.h"
+#include "i2c1722.h"
 
 #include <zephyr/drivers/i2c.h>
-#include <errno.h>
+#include <stdbool.h>
 #include <string.h>
 
-/* ACF-I2C request codes */
-#define I2C_CODE_CR1  0
-#define I2C_CODE_CR3  2
-#define I2C_CODE_CR4  3
-#define I2C_CODE_CR5  4
-#define I2C_CODE_CR6  5
-#define I2C_CODE_CR7  6
-
-/* ACF-I2C response codes */
-#define I2C_CODE_TR1  8
-#define I2C_CODE_TR2  9
-#define I2C_CODE_TR3  10
-#define I2C_CODE_TR5  12
-
-#define I2C_EXCEPTION_NONE      0
-#define I2C_EXCEPTION_SEQUENCE  13
-
-#define FRAM_ADDR 0x50
-
-#define BH1750_ADDR 0x23
+#define WRITE_BUF_SIZE 256
+#define READ_BUF_SIZE  64
 
 /**
  * @brief Stores the state and data of an ongoing I2C transaction.
  *
- * Keeps track of the peripheral address, read/write direction,
- * transaction number, bus ID, buffered write data and read position.
+ * Device independent: write bytes (CR3) are buffered and executed on the bus
+ * at STOP (CR4) or at the first read (CR6/CR7), because Zephyr executes a
+ * whole I2C transaction in one call.
  */
 typedef struct {
-    bool active;
     uint8_t address;
-    bool read;
+    bool read;              /* read phase: CR1 with R bit, or after CR5 */
 
-    uint8_t write_data[34];
+    uint8_t write_data[WRITE_BUF_SIZE];
     size_t write_length;
 
-    uint16_t fram_read_address;
-    size_t read_count;
-
-    uint8_t transaction;
-    uint16_t bus_id;
+    uint8_t read_data[READ_BUF_SIZE];
+    size_t read_length;
+    size_t read_pos;
 } i2c_transaction_t;
 
 /** Holds the state of the currently active ACF-I2C transaction. */
 static i2c_transaction_t current_transaction;
 
-// For the BH1750
-static uint8_t bh1750_cached_data[2];
-static bool bh1750_data_valid = false;
-
-//definition
-static void create_brief_response(
-    const Avtp_I2CBrief_t *request,
-    Avtp_I2CBrief_t *response,
-    uint8_t response_code,
-    uint8_t exception_code,
-    uint8_t response_data);
-
-/**
- * @brief Creates a Full-format ACF-I2C response message.
- *
- * Sets the specified response code, exception code and response data.
- * Copies the transaction number, event information and I2C bus ID
- * from the original request to ensure that the response belongs
- * to the correct transaction.
- */
-static void create_response(
-    const Avtp_I2C_t *request,
-    Avtp_I2C_t *response,
-    uint8_t response_code,
-    uint8_t exception_code,
-    uint8_t response_data)
+/* Creates the response: copies transaction number, event and bus ID from the request. */
+static void create_response(const Avtp_I2C_t *request, Avtp_I2C_t *response,
+                            uint8_t response_code, uint8_t response_data)
 {
-    Avtp_I2C_CreateAcfMessage(
-        response,
-        response_code,
-        false,
-        Avtp_I2C_GetTransactionNum(request),
-        Avtp_I2C_GetEvt(request),
-        exception_code,
-        response_data
-    );
-
-    Avtp_I2C_SetI2CBusId(
-        response,
-        Avtp_I2C_GetI2CBusId(request)
-    );
+    Avtp_I2C_CreateAcfMessage(response, response_code, false,
+                              Avtp_I2C_GetTransactionNum(request), Avtp_I2C_GetEvt(request),
+                              AVTP_I2C_EXC_NONE, response_data);
+    Avtp_I2C_SetI2CBusId(response, Avtp_I2C_GetI2CBusId(request));
 }
 
-
-/**
- * @brief Processes one Full-format ACF-I2C request.
- *
- * Validates the incoming message and processes its I2C command.
- * Handles transaction initialization (CR1), write-data collection
- * (CR3), read-address handling (CR5), write execution (CR4),
- * and data reading (CR6 and CR7).
- *
- * Supports FRAM read/write operations and the BH1750 measurement
- * and read sequence. Generates the corresponding ACF-I2C response.
+/*
+ * Number of bytes to read for the read starting at requests[index]:
+ * the CR6 messages that follow plus the final CR7.
  */
-static int process_full(
-    const struct device *i2c_dev,
-    const Avtp_I2C_t *request,
-    size_t request_size,
-    Avtp_I2C_t *response,
-    size_t response_size)
+static size_t count_reads(const Avtp_I2C_t *requests, size_t num_requests, size_t index)
 {
-    if (i2c_dev == NULL ||
-        !device_is_ready(i2c_dev) ||
-        response_size < sizeof(*response) ||
-        !Avtp_I2C_IsValid(request, request_size)) {
-        return -EINVAL;
+    size_t n = 0;
+    for (size_t i = index; i < num_requests; i++) {
+        uint8_t code = Avtp_I2C_GetI2CCode(&requests[i]);
+        n++;
+        if (code != AVTP_I2C_CODE_CR6) {
+            break; /* CR7 = last byte */
+        }
     }
-
-    uint8_t code = Avtp_I2C_GetI2CCode(request);
-    uint8_t transaction = Avtp_I2C_GetTransactionNum(request);
-    uint16_t bus_id = Avtp_I2C_GetI2CBusId(request);
-
-    /* -------------------------------------------------
-     * CR1: START and address the peripheral.
-     * ------------------------------------------------- */
-    if (code == I2C_CODE_CR1) {
-
-        uint8_t address_data = Avtp_I2C_GetI2CData(request);
-        uint8_t address = address_data >> 1;
-        bool read = (address_data & 0x01U) != 0U;
-
-        /* This first implementation supports FRAM writes only. */
-        if (address != FRAM_ADDR && address != BH1750_ADDR) {
-            create_response(
-                request, response,
-                I2C_CODE_TR1,
-                I2C_EXCEPTION_NONE,
-                0
-            );
-            return 1;
-        }
-
-        /* Start a new transaction. */
-        memset(&current_transaction, 0, sizeof(current_transaction));
-
-        current_transaction.active = true;
-        current_transaction.address = address;
-        current_transaction.read = read;
-        current_transaction.transaction = transaction;
-        current_transaction.bus_id = bus_id;
-        current_transaction.read_count = 0;
-
-        /* A BH1750 read is only allowed after a valid measurement. */
-        if (address == BH1750_ADDR && read && !bh1750_data_valid) {
-            current_transaction.active = false;
-
-            create_response(
-                request, response,
-                I2C_CODE_TR1,
-                I2C_EXCEPTION_SEQUENCE,
-                0
-            );
-
-            return 1;
-        }
-
-        /* CR1 accepted: return TR2 (ACK). */
-        create_response(
-            request,
-            response,
-            I2C_CODE_TR2,
-            I2C_EXCEPTION_NONE,
-            0
-        );
-
-        return 1;
-    }
-
-    /* All following commands require an active transaction. */
-    if (!current_transaction.active ||
-        current_transaction.transaction != transaction ||
-        current_transaction.bus_id != bus_id) {
-
-        create_response(
-            request, response,
-            I2C_CODE_TR1,
-            I2C_EXCEPTION_SEQUENCE,
-            0
-        );
-
-        return 1;
-    }
-
-    /* -------------------------------------------------
-     * CR3: Collect one write-data byte.
-     * ------------------------------------------------- */
-    if (code == I2C_CODE_CR3) {
-
-        if (current_transaction.write_length >=
-            sizeof(current_transaction.write_data)) {
-
-            current_transaction.active = false;
-
-            create_response(
-                request, response,
-                I2C_CODE_TR1,
-                I2C_EXCEPTION_SEQUENCE,
-                0
-            );
-
-            return 1;
-        }
-
-        current_transaction.write_data[
-            current_transaction.write_length
-        ] = Avtp_I2C_GetI2CData(request);
-
-        current_transaction.write_length++;
-
-        create_response(
-            request, response,
-            I2C_CODE_TR2,
-            I2C_EXCEPTION_NONE,
-            0
-        );
-
-        return 1;
-    }
-    /* -------------------------------------------------
-     * CR5: End write phase and restart with read address.
-     * ------------------------------------------------- */
-    if (code == I2C_CODE_CR5) {
-
-            /* This BH1750 test sequence does not use CR5. */
-        if (current_transaction.address == BH1750_ADDR) {
-            current_transaction.active = false;
-
-            create_response(
-                request,
-                response,
-                I2C_CODE_TR1,      /* TR1: NACK */
-                0,
-                0
-            );
-            return 1;
-        }
-
-        uint8_t address_data = Avtp_I2C_GetI2CData(request);
-        uint8_t address = address_data >> 1;
-        bool read = (address_data & 0x01U) != 0U;
-
-        /* Only allow a FRAM read address here. */
-        if (address != FRAM_ADDR || !read) {
-            current_transaction.active = false;
-
-            create_response(
-                request, response,
-                I2C_CODE_TR1,
-                I2C_EXCEPTION_SEQUENCE,
-                0
-            );
-
-            return 1;
-        }
-
-        // check that the write data is received
-        if (current_transaction.write_length < 2) {
-            current_transaction.active = false;
-
-            create_response(
-                request, response,
-                I2C_CODE_TR1,
-                I2C_EXCEPTION_SEQUENCE,
-                0
-            );
-
-            return 1;
-        }
-
-        current_transaction.fram_read_address =
-            ((uint16_t)current_transaction.write_data[0] << 8) |
-            current_transaction.write_data[1];
-
-        current_transaction.read_count = 0;
-        current_transaction.read = true;
-
-        create_response(
-            request, response,
-            I2C_CODE_TR2,
-            I2C_EXCEPTION_NONE,
-            0
-        );
-
-        return 1;
-    }
-
-    /* -------------------------------------------------
-     * CR4: STOP and execute the FRAM write.
-     * ------------------------------------------------- */
-    if (code == I2C_CODE_CR4) {
-
-        if (current_transaction.address == BH1750_ADDR) {
-
-            if (current_transaction.write_length != 1 ||
-                current_transaction.write_data[0] != BH1750_ONETIME_HR) {
-
-                current_transaction.active = false;
-
-                create_response(
-                    request, response,
-                    I2C_CODE_TR1,
-                    I2C_EXCEPTION_SEQUENCE,
-                    0
-                );
-
-                return 1;
-            }
-
-            uint16_t raw_value;
-
-            int ret = bh1750_read_raw(
-                i2c_dev,
-                &raw_value
-            );
-
-            current_transaction.active = false;
-
-            if (ret != 0) {
-                bh1750_data_valid = false;
-
-                create_response(
-                    request, response,
-                    I2C_CODE_TR1,
-                    I2C_EXCEPTION_NONE,
-                    0
-                );
-
-                return 1;
-            }
-
-            bh1750_cached_data[0] =
-                (uint8_t)(raw_value >> 8);
-
-            bh1750_cached_data[1] =
-                (uint8_t)(raw_value & 0xFF);
-
-            bh1750_data_valid = true;
-
-            if (Avtp_I2C_IsTrr(request)) {
-                create_response(
-                    request, response,
-                    I2C_CODE_TR5,
-                    I2C_EXCEPTION_NONE,
-                    0
-                );
-                return 1;
-            }
-
-            return 0;
-        }
-
-        if (current_transaction.write_length < 3) {
-            current_transaction.active = false;
-
-            create_response(
-                request, response,
-                I2C_CODE_TR1,
-                I2C_EXCEPTION_SEQUENCE,
-                0
-            );
-
-            return 1;
-        }
-
-        uint16_t fram_address =
-            ((uint16_t)current_transaction.write_data[0] << 8) |
-            current_transaction.write_data[1];
-
-        size_t data_length =
-            current_transaction.write_length - 2;
-
-        int ret = write_to_fram(
-            i2c_dev,
-            fram_address,
-            &current_transaction.write_data[2],
-            data_length
-        );
-
-        current_transaction.active = false;
-
-        if (ret != 0) {
-            create_response(
-                request, response,
-                I2C_CODE_TR1,
-                I2C_EXCEPTION_NONE,
-                0
-            );
-            return 1;
-        }
-
-        /*
-         * TR5 is returned only when the requester asks
-         * for STOP confirmation using TRR.
-         */
-        if (Avtp_I2C_IsTrr(request)) {
-            create_response(
-                request, response,
-                I2C_CODE_TR5,
-                I2C_EXCEPTION_NONE,
-                0
-            );
-            return 1;
-        }
-
-        return 0;
-    }
-
-    /* CR6: Read one byte and continue. */
-    if (code == I2C_CODE_CR6) {
-
-        if (current_transaction.address == BH1750_ADDR) {
-
-            if (!current_transaction.read ||
-                current_transaction.read_count >= 2) {
-
-                current_transaction.active = false;
-
-                create_response(
-                    request, response,
-                    I2C_CODE_TR1,
-                    I2C_EXCEPTION_SEQUENCE,
-                    0
-                );
-
-                return 1;
-            }
-
-            uint8_t read_data =
-                bh1750_cached_data[current_transaction.read_count];
-
-            current_transaction.read_count++;
-
-            create_response(
-                request, response,
-                I2C_CODE_TR3,
-                I2C_EXCEPTION_NONE,
-                read_data
-            );
-
-            return 1;
-        }
-
-        if (!current_transaction.read) {
-            current_transaction.active = false;
-
-            create_response(
-                request, response,
-                I2C_CODE_TR1,
-                I2C_EXCEPTION_SEQUENCE,
-                0
-            );
-            return 1;
-        }
-
-        uint8_t read_data = 0;
-
-        int ret = read_fram(
-            i2c_dev,
-            current_transaction.fram_read_address +
-                current_transaction.read_count,
-            &read_data,
-            sizeof(read_data)
-        );
-
-        if (ret != 0) {
-            current_transaction.active = false;
-
-            create_response(
-                request, response,
-                I2C_CODE_TR1,
-                I2C_EXCEPTION_NONE,
-                0
-            );
-
-            return 1;
-        }
-
-        current_transaction.read_count++;
-
-        create_response(
-            request, response,
-            I2C_CODE_TR3,
-            I2C_EXCEPTION_NONE,
-            read_data
-        );
-
-        return 1;
-    }
-    /* -------------------------------------------------
-    * CR7: Read final byte, NACK and STOP.
-    * ------------------------------------------------- */
-    if (code == I2C_CODE_CR7) {
-
-        if (current_transaction.address == BH1750_ADDR) {
-
-            if (!current_transaction.read ||
-                current_transaction.read_count != 1) {
-                current_transaction.active = false;
-                create_response(
-                    request, response,
-                    I2C_CODE_TR1,
-                    I2C_EXCEPTION_SEQUENCE,
-                    0
-                );
-
-                return 1;
-            }
-
-            uint8_t read_data = bh1750_cached_data[1];
-
-            current_transaction.read_count++;
-            current_transaction.active = false;
-
-            create_response(
-                request, response,
-                I2C_CODE_TR3,
-                I2C_EXCEPTION_NONE,
-                read_data
-            );
-
-            return 1;
-        }
-        if (!current_transaction.read) {
-            current_transaction.active = false;
-
-            create_response(
-                request, response,
-                I2C_CODE_TR1,
-                I2C_EXCEPTION_SEQUENCE,
-                0
-            );
-
-            return 1;
-        }
-
-        uint8_t read_data = 0;
-
-        int ret = read_fram(
-            i2c_dev,
-            current_transaction.fram_read_address +
-                current_transaction.read_count,
-            &read_data,
-            sizeof(read_data)
-        );
-
-        current_transaction.active = false;
-
-        if (ret != 0) {
-            create_response(
-                request, response,
-                I2C_CODE_TR1,
-                I2C_EXCEPTION_NONE,
-                0
-            );
-
-            return 1;
-        }
-
-        /* TR3 returns the byte read from the FRAM. */
-        create_response(
-            request, response,
-            I2C_CODE_TR3,
-            I2C_EXCEPTION_NONE,
-            read_data
-        );
-
-        return 1;
-    }
-    /* Other commands are not implemented yet. */
-    return -ENOTSUP;
+    return n;
 }
 
-
 /**
- * @brief Processes one Brief-format ACF-I2C request.
+ * @brief Executes requests[index] and creates its response, device independent.
  *
- * Validates the incoming Brief message and processes its I2C command.
- * Handles transaction initialization (CR1), write-data collection
- * (CR3), read-address handling (CR5), FRAM write execution (CR4),
- * and final-byte reading (CR7).
+ * CR1 START + address, CR3 write byte, CR5 repeated START + read address,
+ * CR6/CR7 read byte (CR7 = last byte + STOP), CR4 STOP.
+ * The whole request list is passed so a read can look ahead for its length.
+ * Assumes a correct request sequence and a working bus (no error handling).
  *
- * Supports FRAM read and write operations and generates the
- * corresponding Brief-format ACF-I2C response.
+ * @return true if a response was created.
  */
-static int process_brief(
-    const struct device *i2c_dev,
-    const Avtp_I2CBrief_t *request,
-    size_t request_size,
-    Avtp_I2CBrief_t *response,
-    size_t response_size)
+static bool execute_request(const struct device *i2c_dev, const Avtp_I2C_t *requests,
+                            size_t num_requests, size_t index, Avtp_I2C_t *response)
 {
-    if (i2c_dev == NULL ||
-        !device_is_ready(i2c_dev) ||
-        response_size < sizeof(*response) ||
-        !Avtp_I2CBrief_IsValid(request, request_size)) {
-        return -EINVAL;
-    }
+    const Avtp_I2C_t *request = &requests[index];
+    i2c_transaction_t *t = &current_transaction;
+    uint8_t data = Avtp_I2C_GetI2CData(request);
+    uint8_t rsp_code = AVTP_I2C_CODE_TR2;
+    uint8_t rsp_data = 0;
 
-    uint8_t code = Avtp_I2CBrief_GetI2CCode(request);
-    uint8_t transaction =
-        Avtp_I2CBrief_GetTransactionNum(request);
-    uint16_t bus_id =
-        Avtp_I2CBrief_GetI2CBusId(request);
+    switch (Avtp_I2C_GetI2CCode(request)) {
+    case AVTP_I2C_CODE_CR1: /* START + address byte: new transaction */
+        memset(t, 0, sizeof(*t));
+        t->address = data >> 1;
+        t->read = (data & 0x01U) != 0U;
+        break;
 
-    /*
-     * CR1: START and address the FRAM.
-     */
-    if (code == I2C_CODE_CR1) {
+    case AVTP_I2C_CODE_CR3: /* buffer one write byte */
+        t->write_data[t->write_length++] = data;
+        break;
 
-        uint8_t address_data =
-            Avtp_I2CBrief_GetI2CData(request);
+    case AVTP_I2C_CODE_CR5: /* repeated START: read phase */
+        t->read = true;
+        break;
 
-        uint8_t address = address_data >> 1;
-        bool read = (address_data & 0x01U) != 0U;
-
-        /* This implementation supports FRAM writes only. */
-        if (address != FRAM_ADDR || read) {
-            create_brief_response(
-                request, response,
-                I2C_CODE_TR1,
-                I2C_EXCEPTION_NONE,
-                0
-            );
-            return 0;
+    case AVTP_I2C_CODE_CR6: /* read one byte */
+    case AVTP_I2C_CODE_CR7: /* read last byte, NACK + STOP */
+        /* First read of this phase: execute the transaction on the bus */
+        if (t->read_pos >= t->read_length) {
+            size_t n = count_reads(requests, num_requests, index);
+            if (t->write_length > 0) {
+                (void)i2c_write_read(i2c_dev, t->address, t->write_data, t->write_length,
+                                     t->read_data, n);
+            } else {
+                (void)i2c_read(i2c_dev, t->read_data, n, t->address);
+            }
+            t->write_length = 0;
+            t->read_length = n;
+            t->read_pos = 0;
         }
+        rsp_code = AVTP_I2C_CODE_TR3;
+        rsp_data = t->read_data[t->read_pos++];
+        break;
 
-        /* Start a new transaction. */
-        memset(&current_transaction, 0,
-               sizeof(current_transaction));
-
-        current_transaction.active = true;
-        current_transaction.address = address;
-        current_transaction.read = false;
-        current_transaction.transaction = transaction;
-        current_transaction.bus_id = bus_id;
-
-        create_brief_response(
-            request, response,
-            I2C_CODE_TR2,
-            I2C_EXCEPTION_NONE,
-            0
-        );
-
-        return 0;
-    }
-
-    /*
-     * All following commands require an active transaction
-     * with matching transaction number and bus ID.
-     */
-    if (!current_transaction.active ||
-        current_transaction.transaction != transaction ||
-        current_transaction.bus_id != bus_id) {
-
-        create_brief_response(
-            request, response,
-            I2C_CODE_TR1,
-            I2C_EXCEPTION_SEQUENCE,
-            0
-        );
-
-        return 0;
-    }
-
-    /*
-     * CR3: Collect one write-data byte.
-     */
-    if (code == I2C_CODE_CR3) {
-
-        if (current_transaction.write_length >=
-            sizeof(current_transaction.write_data)) {
-
-            current_transaction.active = false;
-
-            create_brief_response(
-                request, response,
-                I2C_CODE_TR1,
-                I2C_EXCEPTION_SEQUENCE,
-                0
-            );
-
-            return 0;
+    case AVTP_I2C_CODE_CR4: /* STOP: execute the buffered write */
+        if (!t->read && t->write_length > 0) {
+            (void)i2c_write(i2c_dev, t->write_data, t->write_length, t->address);
         }
-
-        current_transaction.write_data[
-            current_transaction.write_length
-        ] = Avtp_I2CBrief_GetI2CData(request);
-
-        current_transaction.write_length++;
-
-        create_brief_response(
-            request, response,
-            I2C_CODE_TR2,
-            I2C_EXCEPTION_NONE,
-            0
-        );
-
-        return 0;
-    }
-
-    /* -------------------------------------------------
-    * CR5: End write phase and restart with read address.
-    * ------------------------------------------------- */
-    if (code == I2C_CODE_CR5) {
-
-        uint8_t address_data =
-            Avtp_I2CBrief_GetI2CData(request);
-
-        uint8_t address = address_data >> 1;
-        bool read = (address_data & 0x01U) != 0U;
-
-        /* Expect FRAM address 0x50 with the read bit set. */
-        if (address != FRAM_ADDR ||
-            !read ||
-            current_transaction.write_length < 2) {
-
-            current_transaction.active = false;
-
-            create_brief_response(
-                request, response,
-                I2C_CODE_TR1,
-                I2C_EXCEPTION_SEQUENCE,
-                0
-            );
-
-            return 0;
-        }
-
-        current_transaction.read = true;
-
-        create_brief_response(
-            request, response,
-            I2C_CODE_TR2,
-            I2C_EXCEPTION_NONE,
-            0
-        );
-
-        return 0;
-    }
-
-    /*
-     * CR4: STOP and execute the physical FRAM write.
-     */
-    if (code == I2C_CODE_CR4) {
-
-        if (current_transaction.write_length < 3) {
-            current_transaction.active = false;
-
-            create_brief_response(
-                request, response,
-                I2C_CODE_TR1,
-                I2C_EXCEPTION_SEQUENCE,
-                0
-            );
-
-            return 0;
-        }
-
-        uint16_t fram_address =
-            ((uint16_t)current_transaction.write_data[0] << 8) |
-            current_transaction.write_data[1];
-
-        size_t data_length =
-            current_transaction.write_length - 2;
-
-        int ret = write_to_fram(
-            i2c_dev,
-            fram_address,
-            &current_transaction.write_data[2],
-            data_length
-        );
-
-        current_transaction.active = false;
-
-        if (ret != 0) {
-            create_brief_response(
-                request, response,
-                I2C_CODE_TR1,
-                I2C_EXCEPTION_NONE,
-                0
-            );
-            return ret;
-        }
-
-        /*
-         * Send TR5 only when TRR requests STOP confirmation.
-         */
-        if (Avtp_I2CBrief_IsTrr(request)) {
-            create_brief_response(
-                request, response,
-                I2C_CODE_TR5,
-                I2C_EXCEPTION_NONE,
-                0
-            );
-        }
-
-        return 0;
-    }
-
-    /* -------------------------------------------------
-    * CR7: Read final byte, NACK and STOP.
-    * ------------------------------------------------- */
-    if (code == I2C_CODE_CR7) {
-
-        if (!current_transaction.read ||
-            current_transaction.write_length < 2) {
-
-            current_transaction.active = false;
-
-            create_brief_response(
-                request, response,
-                I2C_CODE_TR1,
-                I2C_EXCEPTION_SEQUENCE,
-                0
-            );
-
-            return 0;
-        }
-
-        uint8_t memory_address[2] = {
-            current_transaction.write_data[0],
-            current_transaction.write_data[1]
-        };
-
-        uint8_t read_data = 0;
-
-        int ret = i2c_write_read(
-            i2c_dev,
-            FRAM_ADDR,
-            memory_address,
-            sizeof(memory_address),
-            &read_data,
-            sizeof(read_data)
-        );
-
-        current_transaction.active = false;
-
-        if (ret != 0) {
-
-            create_brief_response(
-                request, response,
-                I2C_CODE_TR1,
-                I2C_EXCEPTION_NONE,
-                0
-            );
-
-            return ret;
-        }
-
-        /* TR3 returns the actual byte read from the FRAM. */
-        create_brief_response(
-            request, response,
-            I2C_CODE_TR3,
-            I2C_EXCEPTION_NONE,
-            read_data
-        );
-
-        return 0;
-    }
-    return -ENOTSUP;
-}
-
-
-static void create_brief_response(
-    const Avtp_I2CBrief_t *request,
-    Avtp_I2CBrief_t *response,
-    uint8_t response_code,
-    uint8_t exception_code,
-    uint8_t response_data)
-{
-    Avtp_I2CBrief_CreateAcfMessage(
-        response,
-        response_code,
-        false,
-        Avtp_I2CBrief_GetTransactionNum(request),
-        Avtp_I2CBrief_GetEvt(request),
-        exception_code,
-        response_data
-    );
-
-    Avtp_I2CBrief_SetI2CBusId(
-        response,
-        Avtp_I2CBrief_GetI2CBusId(request)
-    );
-}
-
-
-/**
- * @brief Dispatches an ACF-I2C request to the appropriate message processor.
- *
- * Checks the requested message format and forwards Full-format
- * messages to process_full() or Brief-format messages to process_brief().
- * Returns an error if the request or response pointer is invalid
- * or the message format is unsupported.
- */
-int i2c_listener_process(
-    const struct device *i2c_dev,
-    i2c_message_format_t format,
-    const void *request,
-    size_t request_size,
-    void *response,
-    size_t response_size)
-{
-    if (request == NULL || response == NULL) {
-        return -EINVAL;
-    }
-
-    switch (format) {
-    case I2C_FORMAT_FULL:
-        return process_full(
-            i2c_dev,
-            request,
-            request_size,
-            response,
-            response_size
-        );
-
-    case I2C_FORMAT_BRIEF:
-        return process_brief(
-            i2c_dev,
-            request,
-            request_size,
-            response,
-            response_size
-    );
+        rsp_code = AVTP_I2C_CODE_TR5;
+        break;
 
     default:
-        return -EINVAL;
+        return false;
     }
+
+    create_response(request, response, rsp_code, rsp_data);
+    return true;
+}
+
+size_t i2c_listener_execute(const struct device *i2c_dev, const Avtp_I2C_t *requests,
+                            Avtp_I2C_t *responses, size_t num_requests)
+{
+    size_t rsp_count = 0;
+
+    for (size_t i = 0; i < num_requests; i++) {
+        if (execute_request(i2c_dev, requests, num_requests, i, &responses[rsp_count])) {
+            rsp_count++;
+        }
+    }
+    return rsp_count;
 }
