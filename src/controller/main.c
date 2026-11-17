@@ -87,14 +87,14 @@ static void fram_write(
     int n = 0;
     uint8_t txn = 1;
 
-    n = add_msg(req, n, I2C_CODE_CR1, true, txn,
+    n = add_msg(req, n, I2C_CODE_CR1, true, txn, 0,
                 (FRAM_ADDR << 1));
 
-    n = add_msg(req, n, I2C_CODE_CR3, true, txn, 0x00);
-    n = add_msg(req, n, I2C_CODE_CR3, true, txn, 0x10);
-    n = add_msg(req, n, I2C_CODE_CR3, true, txn, 0x42);
+    n = add_msg(req, n, I2C_CODE_CR3, true, txn, 0, 0x00);
+    n = add_msg(req, n, I2C_CODE_CR3, true, txn, 0, 0x10);
+    n = add_msg(req, n, I2C_CODE_CR3, true, txn, 0, 0x42);
 
-    n = add_msg(req, n, I2C_CODE_CR4, true, txn, 0);
+    n = add_msg(req, n, I2C_CODE_CR4, true, txn, 0, 0);
 
     transfer(fd, target, seq, req, n, rsp);
 }
@@ -111,17 +111,17 @@ static void fram_read(
     int n = 0;
     uint8_t txn = 2;
 
-    n = add_msg(req, n, I2C_CODE_CR1, true, txn,
+    n = add_msg(req, n, I2C_CODE_CR1, true, txn, 0,
                 (FRAM_ADDR << 1));
 
-    n = add_msg(req, n, I2C_CODE_CR3, true, txn, 0x00);
-    n = add_msg(req, n, I2C_CODE_CR3, true, txn, 0x10);
+    n = add_msg(req, n, I2C_CODE_CR3, true, txn, 0, 0x00);
+    n = add_msg(req, n, I2C_CODE_CR3, true, txn, 0, 0x10);
 
-    n = add_msg(req, n, I2C_CODE_CR5, true, txn,
+    n = add_msg(req, n, I2C_CODE_CR5, true, txn, 0,
                 (FRAM_ADDR << 1) | 1);
 
-    n = add_msg(req, n, I2C_CODE_CR6, true, txn, 0);
-    n = add_msg(req, n, I2C_CODE_CR7, true, txn, 0);
+    n = add_msg(req, n, I2C_CODE_CR6, true, txn, 0, 0);
+    n = add_msg(req, n, I2C_CODE_CR7, true, txn, 0, 0);
 
     int count = transfer(fd, target, seq, req, n, rsp);
 
@@ -143,19 +143,19 @@ static void bh1750_read(
     uint8_t txn = 3;
 
     /* Start measurement */
-    n = add_msg(req, n, I2C_CODE_CR1, true, txn,
+    n = add_msg(req, n, I2C_CODE_CR1, true, txn, 0,
                 (BH1750_ADDR << 1));
 
-    n = add_msg(req, n, I2C_CODE_CR3, true, txn, 0x20);
+    n = add_msg(req, n, I2C_CODE_CR3, true, txn, 0, 0x20);
 
-    n = add_msg(req, n, I2C_CODE_CR4, true, txn, 0);
+    n = add_msg(req, n, I2C_CODE_CR4, true, txn, 0, 0);
 
     /* Read measurement */
-    n = add_msg(req, n, I2C_CODE_CR1, true, txn,
+    n = add_msg(req, n, I2C_CODE_CR1, true, txn, 0,
                 (BH1750_ADDR << 1) | 1);
 
-    n = add_msg(req, n, I2C_CODE_CR6, true, txn, 0);
-    n = add_msg(req, n, I2C_CODE_CR7, true, txn, 0);
+    n = add_msg(req, n, I2C_CODE_CR6, true, txn, 0, 0);
+    n = add_msg(req, n, I2C_CODE_CR7, true, txn, 0, 0);
 
     int count = transfer(fd, target, seq, req, n, rsp);
 
