@@ -1,6 +1,7 @@
 /* Controller (laptop): reads the temperature of the I2C sensor on the target over IEEE 1722. */
 #include <netdb.h>
 #include <stdio.h>
+#include <string.h>
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <unistd.h>
@@ -162,7 +163,17 @@ int main(int argc, char *argv[])
 {
     if (argc < 2)
     {
-        fprintf(stderr, "Usage: %s <target-ip-or-hostname>\n", argv[0]);
+        fprintf(stderr, "Usage: %s <target-ip-or-hostname> [fram-write|fram-read|bh1750]\n",
+                argv[0]);
+        return 1;
+    }
+
+    // Demo to run, default: fram-write
+    const char *demo = (argc > 2) ? argv[2] : "fram-write";
+    if (strcmp(demo, "fram-write") != 0 && strcmp(demo, "fram-read") != 0 &&
+        strcmp(demo, "bh1750") != 0)
+    {
+        fprintf(stderr, "Unknown demo '%s' (fram-write, fram-read or bh1750)\n", demo);
         return 1;
     }
 
@@ -194,10 +205,18 @@ int main(int argc, char *argv[])
     struct timeval timeout = {.tv_sec = 1};
     setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
 
-    /*TODO I2C here best with*/
-    fram_write(fd, target, 0);
-    // fram_read(fd, target, 1);
-    // bh1750_read(fd, target, 2);
+    if (strcmp(demo, "fram-write") == 0)
+    {
+        fram_write(fd, target, 0);
+    }
+    else if (strcmp(demo, "fram-read") == 0)
+    {
+        fram_read(fd, target, 0);
+    }
+    else
+    {
+        bh1750_read(fd, target, 0);
+    }
 
     freeaddrinfo(target);
     close(fd);
