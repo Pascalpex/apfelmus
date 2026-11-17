@@ -8,11 +8,23 @@
 #include "i2c1722.h"
 
 #define MAX_I2C_MSGS 16
+#define I2C_CODE_CR1 0
+#define I2C_CODE_CR3 2
+#define I2C_CODE_CR4 3
+#define I2C_CODE_CR5 4
+#define I2C_CODE_CR6 5
+#define I2C_CODE_CR7 6
+
+#define I2C_CODE_TRR true
+
+#define FRAM_ADDR  0x50
+#define BH1750_ADDR 0x23
 
 /* Appends one ACF_I2C message and returns the new count. */
-static int add_msg(Avtp_I2C_t *msgs, int n, uint8_t txn, uint8_t evt, uint8_t data)
+static int add_msg(Avtp_I2C_t *msgs, int n,    uint8_t code,
+    bool trr, uint8_t txn, uint8_t evt, uint8_t data)
 {
-    Avtp_I2C_CreateAcfMessage(&msgs[n], 0, false, txn, evt, /*TODO*/ 0, data);
+    Avtp_I2C_CreateAcfMessage(&msgs[n], code, trr, txn, evt, /*TODO*/ 0, data);
     Avtp_I2C_SetI2CBusId(&msgs[n], 0);
     return n + 1;
 }
@@ -28,7 +40,10 @@ static int transfer(int fd, const struct addrinfo *target, uint32_t seq,
     uint8_t pdu[I2C1722_PDU_SIZE(MAX_I2C_MSGS)];
     int len = i2c_to_avtp(pdu, sizeof(pdu), 1, AVTPDU_VERSION_0, I2C1722_CONTROLLER_STREAM_ID,
                           seq, req, (uint8_t)nreq);
-    sendto(fd, pdu, (size_t)len, 0, target->ai_addr, target->ai_addrlen);
+    if (send(fd, pdu, (size_t)len, 0) < 0) {
+        perror("send");
+        return -1;
+    }
     printf("Sent %d bytes (%d ACF_I2C messages)\n", len, nreq);
 
     // Receive and unpack the response
@@ -60,6 +75,96 @@ static int transfer(int fd, const struct addrinfo *target, uint32_t seq,
     return m;
 }
 
+static void fram_write(
+    int fd,
+    const struct addrinfo *target,
+    uint32_t seq
+)
+{
+    Avtp_I2C_t req[MAX_I2C_MSGS];
+    Avtp_I2C_t rsp[MAX_I2C_MSGS];
+
+    int n = 0;
+    uint8_t txn = 1;
+
+    n = add_msg(req, n, I2C_CODE_CR1, true, txn,
+                (FRAM_ADDR << 1));
+
+    n = add_msg(req, n, I2C_CODE_CR3, true, txn, 0x00);
+    n = add_msg(req, n, I2C_CODE_CR3, true, txn, 0x10);
+    n = add_msg(req, n, I2C_CODE_CR3, true, txn, 0x42);
+
+    n = add_msg(req, n, I2C_CODE_CR4, true, txn, 0);
+
+    transfer(fd, target, seq, req, n, rsp);
+}
+
+static void fram_read(
+    int fd,
+    const struct addrinfo *target,
+    uint32_t seq
+)
+{
+    Avtp_I2C_t req[MAX_I2C_MSGS];
+    Avtp_I2C_t rsp[MAX_I2C_MSGS];
+
+    int n = 0;
+    uint8_t txn = 2;
+
+    n = add_msg(req, n, I2C_CODE_CR1, true, txn,
+                (FRAM_ADDR << 1));
+
+    n = add_msg(req, n, I2C_CODE_CR3, true, txn, 0x00);
+    n = add_msg(req, n, I2C_CODE_CR3, true, txn, 0x10);
+
+    n = add_msg(req, n, I2C_CODE_CR5, true, txn,
+                (FRAM_ADDR << 1) | 1);
+
+    n = add_msg(req, n, I2C_CODE_CR6, true, txn, 0);
+    n = add_msg(req, n, I2C_CODE_CR7, true, txn, 0);
+
+    int count = transfer(fd, target, seq, req, n, rsp);
+
+    if (count > 0) {
+        printf("FRAM read completed. Check the returned TR3 data bytes.\n");
+    }
+}
+
+static void bh1750_read(
+    int fd,
+    const struct addrinfo *target,
+    uint32_t seq
+)
+{
+    Avtp_I2C_t req[MAX_I2C_MSGS];
+    Avtp_I2C_t rsp[MAX_I2C_MSGS];
+
+    int n = 0;
+    uint8_t txn = 3;
+
+    /* Start measurement */
+    n = add_msg(req, n, I2C_CODE_CR1, true, txn,
+                (BH1750_ADDR << 1));
+
+    n = add_msg(req, n, I2C_CODE_CR3, true, txn, 0x20);
+
+    n = add_msg(req, n, I2C_CODE_CR4, true, txn, 0);
+
+    /* Read measurement */
+    n = add_msg(req, n, I2C_CODE_CR1, true, txn,
+                (BH1750_ADDR << 1) | 1);
+
+    n = add_msg(req, n, I2C_CODE_CR6, true, txn, 0);
+    n = add_msg(req, n, I2C_CODE_CR7, true, txn, 0);
+
+    int count = transfer(fd, target, seq, req, n, rsp);
+
+    if (count > 0) {
+        printf("BH1750 response received. Check the returned TR3 data bytes.\n");
+    }
+}
+
+
 int main(int argc, char *argv[])
 {
     if (argc < 2)
@@ -81,10 +186,25 @@ int main(int argc, char *argv[])
 
     // UDP socket, wait at most 1 s for the response
     int fd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (fd < 0) {
+        perror("socket");
+        return 1;
+    }
+
+    if (connect(fd, target->ai_addr, target->ai_addrlen) < 0) {
+        perror("connect");
+        close(fd);
+        freeaddrinfo(target);
+        return 1;
+    }
+
     struct timeval timeout = {.tv_sec = 1};
     setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
 
     /*TODO I2C here best with*/
+    fram_write(fd, target, 0);
+    // fram_read(fd, target, 1);
+    // bh1750_read(fd, target, 2);
 
     freeaddrinfo(target);
     close(fd);
