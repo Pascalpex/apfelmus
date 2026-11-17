@@ -30,10 +30,17 @@ static int add_msg(Avtp_I2C_t *msgs, int n,    uint8_t code,
 static int transfer(int fd, const struct addrinfo *target, uint32_t seq,
                     const Avtp_I2C_t *req, int nreq, Avtp_I2C_t *rsp)
 {
+    // Not needed at the moment: the socket is already connected to the target in main()
+    (void)target;
+
     // Pack into a 1722 frame and send
     uint8_t pdu[I2C1722_PDU_SIZE(MAX_I2C_MSGS)];
     int len = i2c_to_avtp(pdu, sizeof(pdu), 1, AVTPDU_VERSION_0, I2C1722_CONTROLLER_STREAM_ID,
                           seq, req, (uint8_t)nreq);
+    if (len < 0) {
+        printf("Packing the request failed\n");
+        return -1;
+    }
     if (send(fd, pdu, (size_t)len, 0) < 0) {
         perror("send");
         return -1;
