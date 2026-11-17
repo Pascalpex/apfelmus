@@ -4,6 +4,7 @@
  *   udp_link.c  transport (1722 over UDP)
  *   fram.c      MB85RC256V FRAM
  *   bh1750.c    BH1750 light sensor
+ *   mpu6050.c   MPU-6050 accelerometer/gyroscope
  *   oled.c      128x64 OLED display
  *   display.c   16x2 character LCD (HD44780 + PCF8574)
  */
@@ -11,15 +12,18 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "i2c1722.h"
 #include "udp_link.h"
 #include "fram.h"
 #include "bh1750.h"
+#include "mpu6050.h"
 #include "oled.h"
 #include "display.h"
 
-#define FRAM_TEST_ADDR 0x0010 /* FRAM memory address used by the commands */
+#define FRAM_TEST_ADDR  0x0010 /* FRAM memory address used by the commands */
+#define SENSOR_PERIOD_S 5      /* sensor polling period in seconds */
 
 static void cmd_fram_write(struct i2c1722_link *link, const char *text)
 {
@@ -68,45 +72,83 @@ static void cmd_bh1750(struct i2c1722_link *link)
     printf("BH1750: raw=%u -> %.1f lx\n", raw, BH1750_RAW_TO_LUX(raw));
 }
 
-static void cmd_oled(struct i2c1722_link *link, const char *text)
+static void cmd_mpu6050(struct i2c1722_link *link)
 {
-    if (oled_init(link) != 0)
+    struct mpu6050_raw r;
+
+    if (mpu6050_read_raw(link, &r) != 0)
     {
-        printf("OLED init FAILED (check address 0x%02X / wiring)\n", OLED_ADDR);
+        printf("MPU6050 read FAILED\n");
         return;
     }
+    printf("MPU6050: accel [g]   x=%6.2f y=%6.2f z=%6.2f\n",
+           MPU6050_ACCEL_TO_G(r.accel[0]), MPU6050_ACCEL_TO_G(r.accel[1]), MPU6050_ACCEL_TO_G(r.accel[2]));
+    printf("         gyro [°/s]  x=%6.1f y=%6.1f z=%6.1f\n",
+           MPU6050_GYRO_TO_DPS(r.gyro[0]), MPU6050_GYRO_TO_DPS(r.gyro[1]), MPU6050_GYRO_TO_DPS(r.gyro[2]));
+    printf("         temp        %.1f °C\n", MPU6050_TEMP_TO_C(r.temp));
+}
+
+static int oled_show(struct i2c1722_link *link, const char *text)
+{
     if (strlen(text) > OLED_MAX_CHARS)
     {
         printf("OLED: text cut to %d characters\n", OLED_MAX_CHARS);
     }
-    if (oled_print_centered(link, 3, text) != 0)
-    {
-        printf("OLED: write FAILED\n");
-        return;
-    }
-    printf("OLED: \"%.*s\" written\n", OLED_MAX_CHARS, text);
+    return oled_clear(link) || oled_print_centered(link, 3, text);
 }
 
-static void cmd_display(struct i2c1722_link *link, const char *text)
+static int lcd_show(struct i2c1722_link *link, const char *text)
 {
-    if (lcd_init(link) != 0 || lcd_print(link, text) != 0)
+    return lcd_clear(link) || lcd_print(link, text);
+}
+
+/* Reads lines from stdin and passes them to show() until "q!" or EOF */
+static void display_loop(struct i2c1722_link *link,
+                         int (*show)(struct i2c1722_link *, const char *))
+{
+    char line[128];
+
+    printf("Type text to display, \"q!\" to quit\n");
+    for (;;)
     {
-        printf("LCD write FAILED\n");
-        return;
+        printf("> ");
+        fflush(stdout);
+        if (!fgets(line, sizeof(line), stdin))
+        {
+            break; /* EOF */
+        }
+        line[strcspn(line, "\r\n")] = '\0';
+        if (strcmp(line, "q!") == 0)
+        {
+            break;
+        }
+        if (show(link, line) != 0)
+        {
+            printf("write FAILED\n");
+        }
     }
-    printf("LCD: \"%s\" written\n", text);
+}
+
+/* Calls read_sensor() every SENSOR_PERIOD_S seconds until Ctrl-C */
+static void sensor_loop(struct i2c1722_link *link, void (*read_sensor)(struct i2c1722_link *))
+{
+    for (;;)
+    {
+        read_sensor(link);
+        sleep(SENSOR_PERIOD_S);
+    }
 }
 
 int main(int argc, char *argv[])
 {
-    if (argc < 2)
+    if (argc < 3)
     {
         fprintf(stderr, "Usage: %s <target-ip-or-hostname> "
-                        "[fram_write [text] | fram_read [len] | bh1750 | oled [text] | display [text]]\n",
+                        "<oled | display | bh1750 | mpu6050 | fram_write [text] | fram_read [len]>\n",
                 argv[0]);
         return 1;
     }
-    const char *cmd = argc > 2 ? argv[2] : "oled";
+    const char *cmd = argv[2];
     const char *arg = argc > 3 ? argv[3] : NULL;
 
     struct i2c1722_link link;
@@ -125,15 +167,33 @@ int main(int argc, char *argv[])
     }
     else if (strcmp(cmd, "bh1750") == 0)
     {
-        cmd_bh1750(&link);
+        sensor_loop(&link, cmd_bh1750);
+    }
+    else if (strcmp(cmd, "mpu6050") == 0)
+    {
+        sensor_loop(&link, cmd_mpu6050);
     }
     else if (strcmp(cmd, "oled") == 0)
     {
-        cmd_oled(&link, arg ? arg : "HELLO WORLD!");
+        if (oled_init(&link) != 0)
+        {
+            printf("OLED init FAILED (check address 0x%02X / wiring)\n", OLED_ADDR);
+        }
+        else
+        {
+            display_loop(&link, oled_show);
+        }
     }
     else if (strcmp(cmd, "display") == 0)
     {
-        cmd_display(&link, arg ? arg : "HELLO WORLD!");
+        if (lcd_init(&link) != 0)
+        {
+            printf("LCD init FAILED\n");
+        }
+        else
+        {
+            display_loop(&link, lcd_show);
+        }
     }
     else
     {
