@@ -1,6 +1,7 @@
 /*
  * i2c1722.c - packing / unpacking of ACF_I2C messages into IEEE 1722 NTSCF frames
  */
+#include <errno.h>
 #include <string.h>
 
 #include "i2c1722.h"
@@ -77,4 +78,160 @@ int avtp_to_i2c(const uint8_t *pdu, size_t pdu_length, int use_udp, uint64_t str
         remaining -= AVTP_I2C_HEADER_LEN;
     }
     return n;
+}
+
+/* ---------------- Remote I2C API (controller side) ---------------- */
+
+/* Appends one request message (TRR set, so the target answers every message). */
+static void add_request(Avtp_I2C_t *msgs, size_t *n, uint8_t code, uint8_t txn, uint16_t bus_id,
+                        uint8_t data)
+{
+    Avtp_I2C_CreateAcfMessage(&msgs[*n], code, true, txn, 0, AVTP_I2C_EXC_NONE, data);
+    Avtp_I2C_SetI2CBusId(&msgs[*n], bus_id);
+    (*n)++;
+}
+
+/* Write transaction: CR1 (addr+W), CR3 per data byte, CR4 (STOP). Returns -1 if too long. */
+static int build_write(Avtp_I2C_t *msgs, uint8_t txn, uint16_t bus_id, uint8_t addr,
+                       const uint8_t *data, size_t len)
+{
+    size_t n = 0;
+
+    if (len + 2 > I2C1722_MAX_MSGS)
+    {
+        return -1;
+    }
+    add_request(msgs, &n, AVTP_I2C_CODE_CR1, txn, bus_id, (uint8_t)(addr << 1));
+    for (size_t i = 0; i < len; i++)
+    {
+        add_request(msgs, &n, AVTP_I2C_CODE_CR3, txn, bus_id, data[i]);
+    }
+    add_request(msgs, &n, AVTP_I2C_CODE_CR4, txn, bus_id, 0);
+    return (int)n;
+}
+
+/*
+ * Read transaction. With wlen > 0: CR1 (addr+W), CR3 per write byte, CR5 (addr+R);
+ * with wlen == 0: CR1 (addr+R). Then CR6 per read byte and CR7 for the last one.
+ * Returns -1 if too long.
+ */
+static int build_write_read(Avtp_I2C_t *msgs, uint8_t txn, uint16_t bus_id, uint8_t addr,
+                            const uint8_t *wdata, size_t wlen, size_t rlen)
+{
+    size_t n = 0;
+
+    if (rlen == 0 || wlen + rlen + 2 > I2C1722_MAX_MSGS)
+    {
+        return -1;
+    }
+    if (wlen > 0)
+    {
+        add_request(msgs, &n, AVTP_I2C_CODE_CR1, txn, bus_id, (uint8_t)(addr << 1));
+        for (size_t i = 0; i < wlen; i++)
+        {
+            add_request(msgs, &n, AVTP_I2C_CODE_CR3, txn, bus_id, wdata[i]);
+        }
+        add_request(msgs, &n, AVTP_I2C_CODE_CR5, txn, bus_id, (uint8_t)((addr << 1) | 1));
+    }
+    else
+    {
+        add_request(msgs, &n, AVTP_I2C_CODE_CR1, txn, bus_id, (uint8_t)((addr << 1) | 1));
+    }
+    for (size_t i = 0; i + 1 < rlen; i++)
+    {
+        add_request(msgs, &n, AVTP_I2C_CODE_CR6, txn, bus_id, 0);
+    }
+    add_request(msgs, &n, AVTP_I2C_CODE_CR7, txn, bus_id, 0);
+    return (int)n;
+}
+
+/* Returns 0 if no response is TR1 and exactly rlen TR3 bytes were collected, -1 otherwise. */
+static int parse_response(const Avtp_I2C_t *rsp, int n, uint8_t *rdata, size_t rlen)
+{
+    size_t got = 0;
+
+    for (int i = 0; i < n; i++)
+    {
+        uint8_t code = Avtp_I2C_GetI2CCode(&rsp[i]);
+        if (code == AVTP_I2C_CODE_TR1)
+        {
+            return -1;
+        }
+        if (code == AVTP_I2C_CODE_TR3 && got < rlen)
+        {
+            rdata[got++] = Avtp_I2C_GetI2CData(&rsp[i]);
+        }
+    }
+    return got == rlen ? 0 : -1;
+}
+
+/*
+ * Sends the requests in one frame, waits for the answer to this transaction
+ * and evaluates it (TR1 -> -EIO, TR3 bytes -> rdata).
+ * Answers to older transactions (e.g. arriving after a timeout) are dropped.
+ * Returns 0 or a negative errno.
+ */
+static int request(struct i2c1722_link *link, const Avtp_I2C_t *req, int nreq,
+                   uint8_t *rdata, size_t rlen)
+{
+    uint8_t pdu[I2C1722_PDU_SIZE(I2C1722_MAX_MSGS)];
+    Avtp_I2C_t rsp[I2C1722_MAX_MSGS];
+
+    if (nreq < 0)
+    {
+        return -EINVAL; /* transaction does not fit into one frame */
+    }
+    uint8_t txn = Avtp_I2C_GetTransactionNum(&req[0]);
+
+    int len = i2c_to_avtp(pdu, sizeof(pdu), link->use_udp, AVTPDU_VERSION_0,
+                          I2C1722_CONTROLLER_STREAM_ID, link->seq++, req, (uint8_t)nreq);
+    if (len < 0)
+    {
+        return -EINVAL;
+    }
+    int ret = link->send(link->ctx, pdu, (size_t)len);
+    if (ret < 0)
+    {
+        return ret;
+    }
+
+    for (;;)
+    {
+        int rx_len = link->recv(link->ctx, pdu, sizeof(pdu));
+        if (rx_len < 0)
+        {
+            return rx_len;
+        }
+
+        uint32_t rsp_seq;
+        int m = avtp_to_i2c(pdu, (size_t)rx_len, link->use_udp, I2C1722_TARGET_STREAM_ID, rsp,
+                            I2C1722_MAX_MSGS, &rsp_seq);
+        if (m > 0 && Avtp_I2C_GetTransactionNum(&rsp[0]) == txn)
+        {
+            return parse_response(rsp, m, rdata, rlen) == 0 ? 0 : -EIO;
+        }
+        /* invalid frame or answer to another transaction: keep waiting */
+    }
+}
+
+int i2c1722_write(struct i2c1722_link *link, uint16_t bus_id, uint8_t addr,
+                  const uint8_t *buf, size_t len)
+{
+    Avtp_I2C_t req[I2C1722_MAX_MSGS];
+    int n = build_write(req, ++link->txn, bus_id, addr, buf, len);
+    return request(link, req, n, NULL, 0);
+}
+
+int i2c1722_read(struct i2c1722_link *link, uint16_t bus_id, uint8_t addr,
+                 uint8_t *buf, size_t len)
+{
+    return i2c1722_write_read(link, bus_id, addr, NULL, 0, buf, len);
+}
+
+int i2c1722_write_read(struct i2c1722_link *link, uint16_t bus_id, uint8_t addr,
+                       const uint8_t *wbuf, size_t wlen, uint8_t *rbuf, size_t rlen)
+{
+    Avtp_I2C_t req[I2C1722_MAX_MSGS];
+    int n = build_write_read(req, ++link->txn, bus_id, addr, wbuf, wlen, rlen);
+    return request(link, req, n, rbuf, rlen);
 }

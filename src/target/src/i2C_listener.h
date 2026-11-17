@@ -1,32 +1,25 @@
 #ifndef I2C_LISTENER_H
 #define I2C_LISTENER_H
 
-#include <stdint.h>
-#include <stdbool.h>
 #include <stddef.h>
 #include <zephyr/device.h>
-#include <zephyr/drivers/i2c.h>
-#include <zephyr/kernel.h>
-#include <errno.h>
-#include <string.h>
-#include "fram.h"
-#include "bh1750.h"
 
 #include <avtp/acf/I2C.h>
-#include <avtp/acf/I2CBrief.h>
 
-typedef enum {
-    I2C_FORMAT_FULL,
-    I2C_FORMAT_BRIEF
-} i2c_message_format_t;
-
-int i2c_listener_process(
+/**
+ * Executes a list of ACF_I2C requests on the I2C bus (device independent).
+ * The bus ID is copied into the responses; everything runs on i2c_dev.
+ * Assumes correct requests and a working bus (no error handling yet).
+ * Responses are packed densely into responses (one per request).
+ * The transaction state is kept between calls, so a transaction may span lists.
+ *
+ * @return Number of response messages.
+ */
+size_t i2c_listener_execute(
     const struct device *i2c_dev,
-    i2c_message_format_t format,
-    const void *request,
-    size_t request_size,
-    void *response,
-    size_t response_size
+    const Avtp_I2C_t *requests,
+    Avtp_I2C_t *responses,
+    size_t num_requests
 );
-    
+
 #endif
