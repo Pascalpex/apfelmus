@@ -6,10 +6,6 @@
 #include <errno.h>
 #include <string.h>
 
-#define FRAM_ADDR 0x50
-
-#define BH1750_ADDR 0x23
-
 /**
  * @brief Stores the state and data of an ongoing I2C transaction.
  *
@@ -117,7 +113,7 @@ static int process_full(
         bool read = (address_data & 0x01U) != 0U;
 
         /* This first implementation supports FRAM writes only. */
-        if (address != FRAM_ADDR && address != BH1750_ADDR) {
+        if (address != FRAM_I2C_ADDR && address != BH1750_I2C_ADDR) {
             create_response(
                 request, response,
                 AVTP_I2C_CODE_TR1,
@@ -138,7 +134,7 @@ static int process_full(
         current_transaction.read_count = 0;
 
         /* A BH1750 read is only allowed after a valid measurement. */
-        if (address == BH1750_ADDR && read && !bh1750_data_valid) {
+        if (address == BH1750_I2C_ADDR && read && !bh1750_data_valid) {
             current_transaction.active = false;
 
             create_response(
@@ -219,7 +215,7 @@ static int process_full(
     if (code == AVTP_I2C_CODE_CR5) {
 
             /* This BH1750 test sequence does not use CR5. */
-        if (current_transaction.address == BH1750_ADDR) {
+        if (current_transaction.address == BH1750_I2C_ADDR) {
             current_transaction.active = false;
 
             create_response(
@@ -237,7 +233,7 @@ static int process_full(
         bool read = (address_data & 0x01U) != 0U;
 
         /* Only allow a FRAM read address here. */
-        if (address != FRAM_ADDR || !read) {
+        if (address != FRAM_I2C_ADDR || !read) {
             current_transaction.active = false;
 
             create_response(
@@ -286,7 +282,7 @@ static int process_full(
      * ------------------------------------------------- */
     if (code == AVTP_I2C_CODE_CR4) {
 
-        if (current_transaction.address == BH1750_ADDR) {
+        if (current_transaction.address == BH1750_I2C_ADDR) {
 
             if (current_transaction.write_length != 1 ||
                 current_transaction.write_data[0] != BH1750_ONETIME_HR) {
@@ -405,7 +401,7 @@ static int process_full(
     /* CR6: Read one byte and continue. */
     if (code == AVTP_I2C_CODE_CR6) {
 
-        if (current_transaction.address == BH1750_ADDR) {
+        if (current_transaction.address == BH1750_I2C_ADDR) {
 
             if (!current_transaction.read ||
                 current_transaction.read_count >= 2) {
@@ -488,7 +484,7 @@ static int process_full(
     * ------------------------------------------------- */
     if (code == AVTP_I2C_CODE_CR7) {
 
-        if (current_transaction.address == BH1750_ADDR) {
+        if (current_transaction.address == BH1750_I2C_ADDR) {
 
             if (!current_transaction.read ||
                 current_transaction.read_count != 1) {
@@ -611,7 +607,7 @@ static int process_brief(
         bool read = (address_data & 0x01U) != 0U;
 
         /* This implementation supports FRAM writes only. */
-        if (address != FRAM_ADDR || read) {
+        if (address != FRAM_I2C_ADDR || read) {
             create_brief_response(
                 request, response,
                 AVTP_I2C_CODE_TR1,
@@ -707,7 +703,7 @@ static int process_brief(
         bool read = (address_data & 0x01U) != 0U;
 
         /* Expect FRAM address 0x50 with the read bit set. */
-        if (address != FRAM_ADDR ||
+        if (address != FRAM_I2C_ADDR ||
             !read ||
             current_transaction.write_length < 2) {
 
@@ -823,7 +819,7 @@ static int process_brief(
 
         int ret = i2c_write_read(
             i2c_dev,
-            FRAM_ADDR,
+            FRAM_I2C_ADDR,
             memory_address,
             sizeof(memory_address),
             &read_data,
