@@ -71,20 +71,20 @@ static size_t execute_i2c(
     // process each request message and generate a response message
     for (int i = 0; i < n; i++) {
 
-        // store the response in rsp[i]
+        // store the response in the next free slot, rsp[rsp_count]
         int ret = i2c_listener_process(
             i2c_bus,
             I2C_FORMAT_FULL,
             &req[i],
             sizeof(req[i]),
-            &rsp[i],
+            &rsp[rsp_count],
             sizeof(rsp[rsp_count])
         );
 
         if (ret == 1) {
             rsp_count++;
         } else if (ret < 0) {
-            LOG_ERR("I2C request %zu failed: %d", i, ret);
+            LOG_ERR("I2C request %d failed: %d", i, ret);
         }
     }
     return rsp_count; //the listener returns 1 whenever it has filled a response structure
@@ -149,7 +149,7 @@ int main(void)
                 LOG_ERR("Sending response failed: %d", errno);
                 continue;
             }
-            LOG_INF("Response seq=%u sent to %s: %d ACF_I2C message(s)", tx_seq - 1, ip, n);
+            LOG_INF("Response seq=%u sent to %s: %d ACF_I2C message(s)", tx_seq - 1, ip, (int)rsp_count);
         }
     }
     return 0;
