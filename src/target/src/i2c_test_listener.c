@@ -1,15 +1,11 @@
 #include <zephyr/sys/printk.h>
 #include <string.h>
 
-#include "../Open1722/include/avtp/acf/I2C.h"
-#include "../Open1722/include/avtp/acf/I2CBrief.h"
+#include <avtp/acf/I2C.h>
+#include <avtp/acf/I2CBrief.h>
 #include "i2c_listener.h"
 #include "i2c_test_listener.h"
-
-#define I2C_CODE_CR1  0
-#define I2C_CODE_TR2  9
-#define I2C_CODE_TR3  10
-#define I2C_CODE_TR5  12
+#include "avtp_i2c_codes.h"
 
 #define TEST_FRAM_ADDRESS 0x0100
 #define TEST_FRAM_VALUE   0xA5
@@ -39,7 +35,7 @@ void test_full_fram_write(const struct device *i2c_dev)
      * I2C data = (0x50 << 1) = 0xA0
      */
     Avtp_I2C_CreateAcfMessage(
-        &request, 0, false, transaction, 0, 0, 0xA0
+        &request, AVTP_I2C_CODE_CR1, false, transaction, 0, 0, 0xA0
     ); //*pdu, i2c_code, trr (target response request)-0: Target Controller does not send response, transaction_num, event,exception_code, i2c_data)
 
     Avtp_I2C_SetI2CBusId(&request, bus_id);
@@ -51,7 +47,7 @@ void test_full_fram_write(const struct device *i2c_dev)
     );
 
     if (ret != 0 ||
-        Avtp_I2C_GetI2CCode(&response) != I2C_CODE_TR2) {
+        Avtp_I2C_GetI2CCode(&response) != AVTP_I2C_CODE_TR2) {
         printk("FAIL: CR1 START\n");
         return;
     }
@@ -60,7 +56,7 @@ void test_full_fram_write(const struct device *i2c_dev)
      * CR3: Send high byte of FRAM memory address.
      */
     Avtp_I2C_CreateAcfMessage(
-        &request, 2, false, transaction, 0, 0, 0x01
+        &request, AVTP_I2C_CODE_CR3, false, transaction, 0, 0, 0x01
     ); //*pdu, i2c_code, trr (target response request)-0: Target Controller does not send response, transaction_num, event,exception_code, i2c_data)
 
     Avtp_I2C_SetI2CBusId(&request, bus_id);
@@ -72,7 +68,7 @@ void test_full_fram_write(const struct device *i2c_dev)
     );
 
     if (ret != 0 ||
-        Avtp_I2C_GetI2CCode(&response) != I2C_CODE_TR2) {
+        Avtp_I2C_GetI2CCode(&response) != AVTP_I2C_CODE_TR2) {
         printk("FAIL: CR3 address high byte\n");
         return;
     }
@@ -81,7 +77,7 @@ void test_full_fram_write(const struct device *i2c_dev)
      * CR3: Send low byte of FRAM memory address.
      */
     Avtp_I2C_CreateAcfMessage(
-        &request, 2, false, transaction, 0, 0, 0x00
+        &request, AVTP_I2C_CODE_CR3, false, transaction, 0, 0, 0x00
     );
     Avtp_I2C_SetI2CBusId(&request, bus_id);
 
@@ -100,7 +96,7 @@ void test_full_fram_write(const struct device *i2c_dev)
      * CR3: Send the actual value to store.
      */
     Avtp_I2C_CreateAcfMessage(
-        &request, 2, false, transaction, 0, 0,
+        &request, AVTP_I2C_CODE_CR3, false, transaction, 0, 0,
         TEST_FRAM_VALUE
     );
     Avtp_I2C_SetI2CBusId(&request, bus_id);
@@ -121,7 +117,7 @@ void test_full_fram_write(const struct device *i2c_dev)
      * TRR = true, so request STOP confirmation.
      */
     Avtp_I2C_CreateAcfMessage(
-        &request, 3, true, transaction, 0, 0, 0
+        &request, AVTP_I2C_CODE_CR4, true, transaction, 0, 0, 0
     );
     Avtp_I2C_SetI2CBusId(&request, bus_id);
 
@@ -199,7 +195,7 @@ void test_brief_fram_write(const struct device *i2c_dev)
      * FRAM address 0x50, write bit 0 -> 0xA0
      */
     Avtp_I2CBrief_CreateAcfMessage(
-        &request, 0, false, transaction, 0, 0, 0xA0
+        &request, AVTP_I2C_CODE_CR1, false, transaction, 0, 0, 0xA0
     );
     Avtp_I2CBrief_SetI2CBusId(&request, bus_id);
 
@@ -210,14 +206,14 @@ void test_brief_fram_write(const struct device *i2c_dev)
     );
 
     if (ret != 0 ||
-        Avtp_I2CBrief_GetI2CCode(&response) != I2C_CODE_TR2) {
+        Avtp_I2CBrief_GetI2CCode(&response) != AVTP_I2C_CODE_TR2) {
         printk("FAIL: Brief CR1 START\n");
         return;
     }
 
     /* CR3: FRAM memory address high byte. */
     Avtp_I2CBrief_CreateAcfMessage(
-        &request, 2, false, transaction, 0, 0, 0x01
+        &request, AVTP_I2C_CODE_CR3, false, transaction, 0, 0, 0x01
     );
     Avtp_I2CBrief_SetI2CBusId(&request, bus_id);
 
@@ -228,14 +224,14 @@ void test_brief_fram_write(const struct device *i2c_dev)
     );
 
     if (ret != 0 ||
-        Avtp_I2CBrief_GetI2CCode(&response) != I2C_CODE_TR2) {
+        Avtp_I2CBrief_GetI2CCode(&response) != AVTP_I2C_CODE_TR2) {
         printk("FAIL: Brief CR3 address high byte\n");
         return;
     }
 
     /* CR3: FRAM memory address low byte. */
     Avtp_I2CBrief_CreateAcfMessage(
-        &request, 2, false, transaction, 0, 0, 0x01
+        &request, AVTP_I2C_CODE_CR3, false, transaction, 0, 0, 0x01
     );
     Avtp_I2CBrief_SetI2CBusId(&request, bus_id);
 
@@ -246,14 +242,14 @@ void test_brief_fram_write(const struct device *i2c_dev)
     );
 
     if (ret != 0 ||
-        Avtp_I2CBrief_GetI2CCode(&response) != I2C_CODE_TR2) {
+        Avtp_I2CBrief_GetI2CCode(&response) != AVTP_I2C_CODE_TR2) {
         printk("FAIL: Brief CR3 address low byte\n");
         return;
     }
 
     /* CR3: Actual data byte. */
     Avtp_I2CBrief_CreateAcfMessage(
-        &request, 2, false, transaction, 0, 0, test_value
+        &request, AVTP_I2C_CODE_CR3, false, transaction, 0, 0, test_value
     );
     Avtp_I2CBrief_SetI2CBusId(&request, bus_id);
 
@@ -264,7 +260,7 @@ void test_brief_fram_write(const struct device *i2c_dev)
     );
 
     if (ret != 0 ||
-        Avtp_I2CBrief_GetI2CCode(&response) != I2C_CODE_TR2) {
+        Avtp_I2CBrief_GetI2CCode(&response) != AVTP_I2C_CODE_TR2) {
         printk("FAIL: Brief CR3 data byte\n");
         return;
     }
@@ -274,7 +270,7 @@ void test_brief_fram_write(const struct device *i2c_dev)
      * TRR = true, so request STOP confirmation.
      */
     Avtp_I2CBrief_CreateAcfMessage(
-        &request, 3, true, transaction, 0, 0, 0
+        &request, AVTP_I2C_CODE_CR4, true, transaction, 0, 0, 0
     );
     Avtp_I2CBrief_SetI2CBusId(&request, bus_id);
 
@@ -285,7 +281,7 @@ void test_brief_fram_write(const struct device *i2c_dev)
     );
 
     if (ret != 0 ||
-        Avtp_I2CBrief_GetI2CCode(&response) != I2C_CODE_TR5) {
+        Avtp_I2CBrief_GetI2CCode(&response) != AVTP_I2C_CODE_TR5) {
         printk("FAIL: Brief CR4 STOP / FRAM write\n");
         return;
     }
@@ -357,7 +353,7 @@ void test_brief_fram_read(const struct device *i2c_dev)
      * FRAM address 0x50 + WRITE = 0xA0
      */
     Avtp_I2CBrief_CreateAcfMessage(
-        &request, 0, false, transaction, 0, 0, 0xA0
+        &request, AVTP_I2C_CODE_CR1, false, transaction, 0, 0, 0xA0
     );
 
     Avtp_I2CBrief_SetI2CBusId(&request, bus_id);
@@ -369,7 +365,7 @@ void test_brief_fram_read(const struct device *i2c_dev)
     );
 
     if (ret != 0 ||
-        Avtp_I2CBrief_GetI2CCode(&response) != I2C_CODE_TR2) {
+        Avtp_I2CBrief_GetI2CCode(&response) != AVTP_I2C_CODE_TR2) {
         printk("FAIL: CR1 START\n");
         return;
     }
@@ -378,7 +374,7 @@ void test_brief_fram_read(const struct device *i2c_dev)
      * CR3: Memory address high byte.
      */
     Avtp_I2CBrief_CreateAcfMessage(
-        &request, 2, false, transaction, 0, 0,
+        &request, AVTP_I2C_CODE_CR3, false, transaction, 0, 0,
         (uint8_t)(TEST_FRAM_ADDRESS >> 8)
     );
 
@@ -399,7 +395,7 @@ void test_brief_fram_read(const struct device *i2c_dev)
      * CR3: Memory address low byte.
      */
     Avtp_I2CBrief_CreateAcfMessage(
-        &request, 2, false, transaction, 0, 0,
+        &request, AVTP_I2C_CODE_CR3, false, transaction, 0, 0,
         (uint8_t)(TEST_FRAM_ADDRESS & 0xFF)
     );
 
@@ -421,7 +417,7 @@ void test_brief_fram_read(const struct device *i2c_dev)
      * FRAM address 0x50 + READ = 0xA1
      */
     Avtp_I2CBrief_CreateAcfMessage(
-        &request, 4, false, transaction, 0, 0, 0xA1
+        &request, AVTP_I2C_CODE_CR5, false, transaction, 0, 0, 0xA1
     );
 
     Avtp_I2CBrief_SetI2CBusId(&request, bus_id);
@@ -433,7 +429,7 @@ void test_brief_fram_read(const struct device *i2c_dev)
     );
 
     if (ret != 0 ||
-        Avtp_I2CBrief_GetI2CCode(&response) != I2C_CODE_TR2) {
+        Avtp_I2CBrief_GetI2CCode(&response) != AVTP_I2C_CODE_TR2) {
         printk("FAIL: CR5 repeated START\n");
         return;
     }
@@ -442,7 +438,7 @@ void test_brief_fram_read(const struct device *i2c_dev)
      * CR7: Read final byte, NACK and STOP.
      */
     Avtp_I2CBrief_CreateAcfMessage(
-        &request, 6, false, transaction, 0, 0, 0
+        &request, AVTP_I2C_CODE_CR7, false, transaction, 0, 0, 0
     );
 
     Avtp_I2CBrief_SetI2CBusId(&request, bus_id);
@@ -454,7 +450,7 @@ void test_brief_fram_read(const struct device *i2c_dev)
     );
 
     if (ret != 0 ||
-        Avtp_I2CBrief_GetI2CCode(&response) != I2C_CODE_TR3) {
+        Avtp_I2CBrief_GetI2CCode(&response) != AVTP_I2C_CODE_TR3) {
         printk("FAIL: CR7 read response\n");
         return;
     }
@@ -508,7 +504,7 @@ void test_full_fram_read(const struct device *i2c_dev)
 
     /* CR1: START, FRAM address + WRITE (0xA0). */
     Avtp_I2C_CreateAcfMessage(
-        &request, 0, false, transaction, 0, 0, 0xA0
+        &request, AVTP_I2C_CODE_CR1, false, transaction, 0, 0, 0xA0
     );
     Avtp_I2C_SetI2CBusId(&request, bus_id);
 
@@ -519,14 +515,14 @@ void test_full_fram_read(const struct device *i2c_dev)
     );
 
     if (ret != 0 ||
-        Avtp_I2C_GetI2CCode(&response) != I2C_CODE_TR2) {
+        Avtp_I2C_GetI2CCode(&response) != AVTP_I2C_CODE_TR2) {
         printk("FAIL: CR1 START\n");
         return;
     }
 
     /* CR3: Memory address high byte. */
     Avtp_I2C_CreateAcfMessage(
-        &request, 2, false, transaction, 0, 0,
+        &request, AVTP_I2C_CODE_CR3, false, transaction, 0, 0,
         (uint8_t)(TEST_FRAM_ADDRESS >> 8)
     );
     Avtp_I2C_SetI2CBusId(&request, bus_id);
@@ -544,7 +540,7 @@ void test_full_fram_read(const struct device *i2c_dev)
 
     /* CR3: Memory address low byte. */
     Avtp_I2C_CreateAcfMessage(
-        &request, 2, false, transaction, 0, 0,
+        &request, AVTP_I2C_CODE_CR3, false, transaction, 0, 0,
         (uint8_t)(TEST_FRAM_ADDRESS & 0xFF)
     );
     Avtp_I2C_SetI2CBusId(&request, bus_id);
@@ -562,7 +558,7 @@ void test_full_fram_read(const struct device *i2c_dev)
 
     /* CR5: Repeated START, FRAM address + READ (0xA1). */
     Avtp_I2C_CreateAcfMessage(
-        &request, 4, false, transaction, 0, 0, 0xA1
+        &request, AVTP_I2C_CODE_CR5, false, transaction, 0, 0, 0xA1
     );
     Avtp_I2C_SetI2CBusId(&request, bus_id);
 
@@ -573,14 +569,14 @@ void test_full_fram_read(const struct device *i2c_dev)
     );
 
     if (ret != 0 ||
-        Avtp_I2C_GetI2CCode(&response) != I2C_CODE_TR2) {
+        Avtp_I2C_GetI2CCode(&response) != AVTP_I2C_CODE_TR2) {
         printk("FAIL: CR5 repeated START\n");
         return;
     }
 
     /* CR7: Read final byte, NACK and STOP. */
     Avtp_I2C_CreateAcfMessage(
-        &request, 6, false, transaction, 0, 0, 0
+        &request, AVTP_I2C_CODE_CR7, false, transaction, 0, 0, 0
     );
     Avtp_I2C_SetI2CBusId(&request, bus_id);
 
@@ -591,7 +587,7 @@ void test_full_fram_read(const struct device *i2c_dev)
     );
 
     if (ret != 0 ||
-        Avtp_I2C_GetI2CCode(&response) != I2C_CODE_TR3) {
+        Avtp_I2C_GetI2CCode(&response) != AVTP_I2C_CODE_TR3) {
         printk("FAIL: CR7 read response\n");
         return;
     }
@@ -649,7 +645,7 @@ void test_full_fram_multibyte_read(const struct device *i2c_dev)
 
     /* CR1: START + FRAM WRITE. */
     Avtp_I2C_CreateAcfMessage(
-        &request, 0, false, transaction, 0, 0, 0xA0
+        &request, AVTP_I2C_CODE_CR1, false, transaction, 0, 0, 0xA0
     );
     Avtp_I2C_SetI2CBusId(&request, bus_id);
 
@@ -660,14 +656,14 @@ void test_full_fram_multibyte_read(const struct device *i2c_dev)
     );
 
     if (ret != 0 ||
-        Avtp_I2C_GetI2CCode(&response) != I2C_CODE_TR2) {
+        Avtp_I2C_GetI2CCode(&response) != AVTP_I2C_CODE_TR2) {
         printk("FAIL: CR1\n");
         return;
     }
 
     /* CR3: Memory address high byte. */
     Avtp_I2C_CreateAcfMessage(
-        &request, 2, false, transaction, 0, 0, 0x02
+        &request, AVTP_I2C_CODE_CR3, false, transaction, 0, 0, 0x02
     );
     Avtp_I2C_SetI2CBusId(&request, bus_id);
 
@@ -684,7 +680,7 @@ void test_full_fram_multibyte_read(const struct device *i2c_dev)
 
     /* CR3: Memory address low byte. */
     Avtp_I2C_CreateAcfMessage(
-        &request, 2, false, transaction, 0, 0, 0x00
+        &request, AVTP_I2C_CODE_CR3, false, transaction, 0, 0, 0x00
     );
     Avtp_I2C_SetI2CBusId(&request, bus_id);
 
@@ -701,7 +697,7 @@ void test_full_fram_multibyte_read(const struct device *i2c_dev)
 
     /* CR5: Repeated START + FRAM READ. */
     Avtp_I2C_CreateAcfMessage(
-        &request, 4, false, transaction, 0, 0, 0xA1
+        &request, AVTP_I2C_CODE_CR5, false, transaction, 0, 0, 0xA1
     );
     Avtp_I2C_SetI2CBusId(&request, bus_id);
 
@@ -712,7 +708,7 @@ void test_full_fram_multibyte_read(const struct device *i2c_dev)
     );
 
     if (ret != 0 ||
-        Avtp_I2C_GetI2CCode(&response) != I2C_CODE_TR2) {
+        Avtp_I2C_GetI2CCode(&response) != AVTP_I2C_CODE_TR2) {
         printk("FAIL: CR5\n");
         return;
     }
@@ -721,7 +717,7 @@ void test_full_fram_multibyte_read(const struct device *i2c_dev)
     for (size_t i = 0; i < 2; i++) {
 
         Avtp_I2C_CreateAcfMessage(
-            &request, 5, false, transaction, 0, 0, 0
+            &request, AVTP_I2C_CODE_CR6, false, transaction, 0, 0, 0
         );
         Avtp_I2C_SetI2CBusId(&request, bus_id);
 
@@ -732,7 +728,7 @@ void test_full_fram_multibyte_read(const struct device *i2c_dev)
         );
 
         if (ret != 0 ||
-            Avtp_I2C_GetI2CCode(&response) != I2C_CODE_TR3) {
+            Avtp_I2C_GetI2CCode(&response) != AVTP_I2C_CODE_TR3) {
             printk("FAIL: CR6 read byte %u\n", (unsigned int)i);
             return;
         }
@@ -742,7 +738,7 @@ void test_full_fram_multibyte_read(const struct device *i2c_dev)
 
     /* CR7: Read byte 3, NACK + STOP. */
     Avtp_I2C_CreateAcfMessage(
-        &request, 6, false, transaction, 0, 0, 0
+        &request, AVTP_I2C_CODE_CR7, false, transaction, 0, 0, 0
     );
     Avtp_I2C_SetI2CBusId(&request, bus_id);
 
@@ -753,7 +749,7 @@ void test_full_fram_multibyte_read(const struct device *i2c_dev)
     );
 
     if (ret != 0 ||
-        Avtp_I2C_GetI2CCode(&response) != I2C_CODE_TR3) {
+        Avtp_I2C_GetI2CCode(&response) != AVTP_I2C_CODE_TR3) {
         printk("FAIL: CR7 read byte 3\n");
         return;
     }
@@ -794,7 +790,7 @@ void test_full_listener(const struct device *i2c_dev)
      * I2C data = 0xA0
      */
     Avtp_I2C_CreateAcfMessage(
-        &request, 0, false, transaction, 0, 0, 0xA0
+        &request, AVTP_I2C_CODE_CR1, false, transaction, 0, 0, 0xA0
     );
 
     Avtp_I2C_SetI2CBusId(&request, bus_id);
@@ -821,7 +817,7 @@ void test_full_listener(const struct device *i2c_dev)
     printk("Bus ID: %u\n",
            Avtp_I2C_GetI2CBusId(&response));
 
-    if (response_code != I2C_CODE_TR2 ||
+    if (response_code != AVTP_I2C_CODE_TR2 ||
         Avtp_I2C_GetTransactionNum(&response) != transaction ||
         Avtp_I2C_GetI2CBusId(&response) != bus_id) {
         printk("FAIL: Full-format response fields incorrect\n");
@@ -848,7 +844,7 @@ void test_brief_listener(const struct device *i2c_dev)
     /* Create the same BH1750 read request in Brief format. */
     Avtp_I2CBrief_CreateAcfMessage(
         &request,
-        I2C_CODE_CR1,
+        AVTP_I2C_CODE_CR1,
         false,
         7,       /* Transaction number */
         0,       /* Event */
@@ -881,7 +877,7 @@ void test_brief_listener(const struct device *i2c_dev)
     printk("Bus ID: %u\n",
            Avtp_I2CBrief_GetI2CBusId(&response));
 
-    if (Avtp_I2CBrief_GetI2CCode(&response) == I2C_CODE_TR2 &&
+    if (Avtp_I2CBrief_GetI2CCode(&response) == AVTP_I2C_CODE_TR2 &&
         Avtp_I2CBrief_GetTransactionNum(&response) == 7 &&
         Avtp_I2CBrief_GetI2CBusId(&response) == 3) {
         printk("PASS: Brief-format listener test\n");
@@ -936,7 +932,7 @@ void test_brief_listener(const struct device *i2c_dev)
         return;
     }
 
-    if (Avtp_I2CBrief_GetI2CCode(&response) == I2C_CODE_TR2 &&
+    if (Avtp_I2CBrief_GetI2CCode(&response) == AVTP_I2C_CODE_TR2 &&
         Avtp_I2CBrief_GetTransactionNum(&response) == 7 &&
         Avtp_I2CBrief_GetI2CBusId(&response) == 3) {
         printk("PASS: Raw Brief message test\n");
@@ -1097,7 +1093,7 @@ void test_full_bh1750_read(const struct device *i2c_dev)
 
     /* CR1: START + BH1750 address + WRITE (0x46). */
     Avtp_I2C_CreateAcfMessage(
-        &request, 0, false,
+        &request, AVTP_I2C_CODE_CR1, false,
         write_transaction, 0, 0, 0x46
     );
     Avtp_I2C_SetI2CBusId(&request, bus_id);
@@ -1109,7 +1105,7 @@ void test_full_bh1750_read(const struct device *i2c_dev)
     );
 
     if (ret != 0 ||
-        Avtp_I2C_GetI2CCode(&response) != I2C_CODE_TR2) {
+        Avtp_I2C_GetI2CCode(&response) != AVTP_I2C_CODE_TR2) {
         printk("FAIL: BH1750 write START\n");
         return;
     }
@@ -1118,7 +1114,7 @@ void test_full_bh1750_read(const struct device *i2c_dev)
 
     /* CR3: Send one-time high-resolution command (0x20). */
     Avtp_I2C_CreateAcfMessage(
-        &request, 2, false,
+        &request, AVTP_I2C_CODE_CR3, false,
         write_transaction, 0, 0, 0x20
     );
     Avtp_I2C_SetI2CBusId(&request, bus_id);
@@ -1130,7 +1126,7 @@ void test_full_bh1750_read(const struct device *i2c_dev)
     );
 
     if (ret != 0 ||
-        Avtp_I2C_GetI2CCode(&response) != I2C_CODE_TR2) {
+        Avtp_I2C_GetI2CCode(&response) != AVTP_I2C_CODE_TR2) {
         printk("FAIL: BH1750 measurement command\n");
         return;
     }
@@ -1139,7 +1135,7 @@ void test_full_bh1750_read(const struct device *i2c_dev)
 
     /* CR4: STOP, request STOP confirmation (TRR = true). */
     Avtp_I2C_CreateAcfMessage(
-        &request, 3, true,
+        &request, AVTP_I2C_CODE_CR4, true,
         write_transaction, 0, 0, 0
     );
     Avtp_I2C_SetI2CBusId(&request, bus_id);
@@ -1151,7 +1147,7 @@ void test_full_bh1750_read(const struct device *i2c_dev)
     );
 
     if (ret != 0 ||
-        Avtp_I2C_GetI2CCode(&response) != I2C_CODE_TR5) {
+        Avtp_I2C_GetI2CCode(&response) != AVTP_I2C_CODE_TR5) {
         printk("FAIL: BH1750 measurement / STOP\n");
         return;
     }
@@ -1164,7 +1160,7 @@ void test_full_bh1750_read(const struct device *i2c_dev)
 
     /* CR1: START + BH1750 address + READ (0x47). */
     Avtp_I2C_CreateAcfMessage(
-        &request, 0, false,
+        &request, AVTP_I2C_CODE_CR1, false,
         read_transaction, 0, 0, 0x47
     );
     Avtp_I2C_SetI2CBusId(&request, bus_id);
@@ -1176,7 +1172,7 @@ void test_full_bh1750_read(const struct device *i2c_dev)
     );
 
     if (ret != 0 ||
-        Avtp_I2C_GetI2CCode(&response) != I2C_CODE_TR2) {
+        Avtp_I2C_GetI2CCode(&response) != AVTP_I2C_CODE_TR2) {
         printk("FAIL: BH1750 read START\n");
         return;
     }
@@ -1185,7 +1181,7 @@ void test_full_bh1750_read(const struct device *i2c_dev)
 
     /* CR6: Read first byte and continue. */
     Avtp_I2C_CreateAcfMessage(
-        &request, 5, false,
+        &request, AVTP_I2C_CODE_CR6, false,
         read_transaction, 0, 0, 0
     );
     Avtp_I2C_SetI2CBusId(&request, bus_id);
@@ -1197,7 +1193,7 @@ void test_full_bh1750_read(const struct device *i2c_dev)
     );
 
     if (ret != 0 ||
-        Avtp_I2C_GetI2CCode(&response) != I2C_CODE_TR3) {
+        Avtp_I2C_GetI2CCode(&response) != AVTP_I2C_CODE_TR3) {
         printk("FAIL: BH1750 CR6\n");
         return;
     }
@@ -1206,7 +1202,7 @@ void test_full_bh1750_read(const struct device *i2c_dev)
 
     /* CR7: Read final byte, NACK and STOP. */
     Avtp_I2C_CreateAcfMessage(
-        &request, 6, false,
+        &request, AVTP_I2C_CODE_CR7, false,
         read_transaction, 0, 0, 0
     );
     Avtp_I2C_SetI2CBusId(&request, bus_id);
@@ -1218,7 +1214,7 @@ void test_full_bh1750_read(const struct device *i2c_dev)
     );
 
     if (ret != 0 ||
-        Avtp_I2C_GetI2CCode(&response) != I2C_CODE_TR3) {
+        Avtp_I2C_GetI2CCode(&response) != AVTP_I2C_CODE_TR3) {
         printk("FAIL: BH1750 CR7\n");
         return;
     }
