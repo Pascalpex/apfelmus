@@ -6,16 +6,9 @@
 #include <unistd.h>
 
 #include "i2c1722.h"
+#include "avtp_i2c_codes.h"
 
 #define MAX_I2C_MSGS 16
-#define I2C_CODE_CR1 0
-#define I2C_CODE_CR3 2
-#define I2C_CODE_CR4 3
-#define I2C_CODE_CR5 4
-#define I2C_CODE_CR6 5
-#define I2C_CODE_CR7 6
-
-#define I2C_CODE_TRR true
 
 #define FRAM_ADDR  0x50
 #define BH1750_ADDR 0x23
@@ -87,14 +80,14 @@ static void fram_write(
     int n = 0;
     uint8_t txn = 1;
 
-    n = add_msg(req, n, I2C_CODE_CR1, true, txn, 0,
+    n = add_msg(req, n, AVTP_I2C_CODE_CR1, true, txn, 0,
                 (FRAM_ADDR << 1));
 
-    n = add_msg(req, n, I2C_CODE_CR3, true, txn, 0, 0x00);
-    n = add_msg(req, n, I2C_CODE_CR3, true, txn, 0, 0x10);
-    n = add_msg(req, n, I2C_CODE_CR3, true, txn, 0, 0x42);
+    n = add_msg(req, n, AVTP_I2C_CODE_CR3, true, txn, 0, 0x00);
+    n = add_msg(req, n, AVTP_I2C_CODE_CR3, true, txn, 0, 0x10);
+    n = add_msg(req, n, AVTP_I2C_CODE_CR3, true, txn, 0, 0x42);
 
-    n = add_msg(req, n, I2C_CODE_CR4, true, txn, 0, 0);
+    n = add_msg(req, n, AVTP_I2C_CODE_CR4, true, txn, 0, 0);
 
     transfer(fd, target, seq, req, n, rsp);
 }
@@ -111,17 +104,17 @@ static void fram_read(
     int n = 0;
     uint8_t txn = 2;
 
-    n = add_msg(req, n, I2C_CODE_CR1, true, txn, 0,
+    n = add_msg(req, n, AVTP_I2C_CODE_CR1, true, txn, 0,
                 (FRAM_ADDR << 1));
 
-    n = add_msg(req, n, I2C_CODE_CR3, true, txn, 0, 0x00);
-    n = add_msg(req, n, I2C_CODE_CR3, true, txn, 0, 0x10);
+    n = add_msg(req, n, AVTP_I2C_CODE_CR3, true, txn, 0, 0x00);
+    n = add_msg(req, n, AVTP_I2C_CODE_CR3, true, txn, 0, 0x10);
 
-    n = add_msg(req, n, I2C_CODE_CR5, true, txn, 0,
+    n = add_msg(req, n, AVTP_I2C_CODE_CR5, true, txn, 0,
                 (FRAM_ADDR << 1) | 1);
 
-    n = add_msg(req, n, I2C_CODE_CR6, true, txn, 0, 0);
-    n = add_msg(req, n, I2C_CODE_CR7, true, txn, 0, 0);
+    n = add_msg(req, n, AVTP_I2C_CODE_CR6, true, txn, 0, 0);
+    n = add_msg(req, n, AVTP_I2C_CODE_CR7, true, txn, 0, 0);
 
     int count = transfer(fd, target, seq, req, n, rsp);
 
@@ -143,19 +136,19 @@ static void bh1750_read(
     uint8_t txn = 3;
 
     /* Start measurement */
-    n = add_msg(req, n, I2C_CODE_CR1, true, txn, 0,
+    n = add_msg(req, n, AVTP_I2C_CODE_CR1, true, txn, 0,
                 (BH1750_ADDR << 1));
 
-    n = add_msg(req, n, I2C_CODE_CR3, true, txn, 0, 0x20);
+    n = add_msg(req, n, AVTP_I2C_CODE_CR3, true, txn, 0, 0x20);
 
-    n = add_msg(req, n, I2C_CODE_CR4, true, txn, 0, 0);
+    n = add_msg(req, n, AVTP_I2C_CODE_CR4, true, txn, 0, 0);
 
     /* Read measurement */
-    n = add_msg(req, n, I2C_CODE_CR1, true, txn, 0,
+    n = add_msg(req, n, AVTP_I2C_CODE_CR1, true, txn, 0,
                 (BH1750_ADDR << 1) | 1);
 
-    n = add_msg(req, n, I2C_CODE_CR6, true, txn, 0, 0);
-    n = add_msg(req, n, I2C_CODE_CR7, true, txn, 0, 0);
+    n = add_msg(req, n, AVTP_I2C_CODE_CR6, true, txn, 0, 0);
+    n = add_msg(req, n, AVTP_I2C_CODE_CR7, true, txn, 0, 0);
 
     int count = transfer(fd, target, seq, req, n, rsp);
 

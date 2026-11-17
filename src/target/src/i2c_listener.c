@@ -1,26 +1,10 @@
 #include "i2c_listener.h"
 #include "fram.h"
+#include "avtp_i2c_codes.h"
 
 #include <zephyr/drivers/i2c.h>
 #include <errno.h>
 #include <string.h>
-
-/* ACF-I2C request codes */
-#define I2C_CODE_CR1  0
-#define I2C_CODE_CR3  2
-#define I2C_CODE_CR4  3
-#define I2C_CODE_CR5  4
-#define I2C_CODE_CR6  5
-#define I2C_CODE_CR7  6
-
-/* ACF-I2C response codes */
-#define I2C_CODE_TR1  8
-#define I2C_CODE_TR2  9
-#define I2C_CODE_TR3  10
-#define I2C_CODE_TR5  12
-
-#define I2C_EXCEPTION_NONE      0
-#define I2C_EXCEPTION_SEQUENCE  13
 
 #define FRAM_ADDR 0x50
 
@@ -126,7 +110,7 @@ static int process_full(
     /* -------------------------------------------------
      * CR1: START and address the peripheral.
      * ------------------------------------------------- */
-    if (code == I2C_CODE_CR1) {
+    if (code == AVTP_I2C_CODE_CR1) {
 
         uint8_t address_data = Avtp_I2C_GetI2CData(request);
         uint8_t address = address_data >> 1;
@@ -136,8 +120,8 @@ static int process_full(
         if (address != FRAM_ADDR && address != BH1750_ADDR) {
             create_response(
                 request, response,
-                I2C_CODE_TR1,
-                I2C_EXCEPTION_NONE,
+                AVTP_I2C_CODE_TR1,
+                AVTP_I2C_EXC_NONE,
                 0
             );
             return 1;
@@ -159,8 +143,8 @@ static int process_full(
 
             create_response(
                 request, response,
-                I2C_CODE_TR1,
-                I2C_EXCEPTION_SEQUENCE,
+                AVTP_I2C_CODE_TR1,
+                AVTP_I2C_EXC_SEQUENCE_ERROR,
                 0
             );
 
@@ -171,8 +155,8 @@ static int process_full(
         create_response(
             request,
             response,
-            I2C_CODE_TR2,
-            I2C_EXCEPTION_NONE,
+            AVTP_I2C_CODE_TR2,
+            AVTP_I2C_EXC_NONE,
             0
         );
 
@@ -186,8 +170,8 @@ static int process_full(
 
         create_response(
             request, response,
-            I2C_CODE_TR1,
-            I2C_EXCEPTION_SEQUENCE,
+            AVTP_I2C_CODE_TR1,
+            AVTP_I2C_EXC_SEQUENCE_ERROR,
             0
         );
 
@@ -197,7 +181,7 @@ static int process_full(
     /* -------------------------------------------------
      * CR3: Collect one write-data byte.
      * ------------------------------------------------- */
-    if (code == I2C_CODE_CR3) {
+    if (code == AVTP_I2C_CODE_CR3) {
 
         if (current_transaction.write_length >=
             sizeof(current_transaction.write_data)) {
@@ -206,8 +190,8 @@ static int process_full(
 
             create_response(
                 request, response,
-                I2C_CODE_TR1,
-                I2C_EXCEPTION_SEQUENCE,
+                AVTP_I2C_CODE_TR1,
+                AVTP_I2C_EXC_SEQUENCE_ERROR,
                 0
             );
 
@@ -222,8 +206,8 @@ static int process_full(
 
         create_response(
             request, response,
-            I2C_CODE_TR2,
-            I2C_EXCEPTION_NONE,
+            AVTP_I2C_CODE_TR2,
+            AVTP_I2C_EXC_NONE,
             0
         );
 
@@ -232,7 +216,7 @@ static int process_full(
     /* -------------------------------------------------
      * CR5: End write phase and restart with read address.
      * ------------------------------------------------- */
-    if (code == I2C_CODE_CR5) {
+    if (code == AVTP_I2C_CODE_CR5) {
 
             /* This BH1750 test sequence does not use CR5. */
         if (current_transaction.address == BH1750_ADDR) {
@@ -241,7 +225,7 @@ static int process_full(
             create_response(
                 request,
                 response,
-                I2C_CODE_TR1,      /* TR1: NACK */
+                AVTP_I2C_CODE_TR1,      /* TR1: NACK */
                 0,
                 0
             );
@@ -258,8 +242,8 @@ static int process_full(
 
             create_response(
                 request, response,
-                I2C_CODE_TR1,
-                I2C_EXCEPTION_SEQUENCE,
+                AVTP_I2C_CODE_TR1,
+                AVTP_I2C_EXC_SEQUENCE_ERROR,
                 0
             );
 
@@ -272,8 +256,8 @@ static int process_full(
 
             create_response(
                 request, response,
-                I2C_CODE_TR1,
-                I2C_EXCEPTION_SEQUENCE,
+                AVTP_I2C_CODE_TR1,
+                AVTP_I2C_EXC_SEQUENCE_ERROR,
                 0
             );
 
@@ -289,8 +273,8 @@ static int process_full(
 
         create_response(
             request, response,
-            I2C_CODE_TR2,
-            I2C_EXCEPTION_NONE,
+            AVTP_I2C_CODE_TR2,
+            AVTP_I2C_EXC_NONE,
             0
         );
 
@@ -300,7 +284,7 @@ static int process_full(
     /* -------------------------------------------------
      * CR4: STOP and execute the FRAM write.
      * ------------------------------------------------- */
-    if (code == I2C_CODE_CR4) {
+    if (code == AVTP_I2C_CODE_CR4) {
 
         if (current_transaction.address == BH1750_ADDR) {
 
@@ -311,8 +295,8 @@ static int process_full(
 
                 create_response(
                     request, response,
-                    I2C_CODE_TR1,
-                    I2C_EXCEPTION_SEQUENCE,
+                    AVTP_I2C_CODE_TR1,
+                    AVTP_I2C_EXC_SEQUENCE_ERROR,
                     0
                 );
 
@@ -333,8 +317,8 @@ static int process_full(
 
                 create_response(
                     request, response,
-                    I2C_CODE_TR1,
-                    I2C_EXCEPTION_NONE,
+                    AVTP_I2C_CODE_TR1,
+                    AVTP_I2C_EXC_NONE,
                     0
                 );
 
@@ -352,8 +336,8 @@ static int process_full(
             if (Avtp_I2C_IsTrr(request)) {
                 create_response(
                     request, response,
-                    I2C_CODE_TR5,
-                    I2C_EXCEPTION_NONE,
+                    AVTP_I2C_CODE_TR5,
+                    AVTP_I2C_EXC_NONE,
                     0
                 );
                 return 1;
@@ -367,8 +351,8 @@ static int process_full(
 
             create_response(
                 request, response,
-                I2C_CODE_TR1,
-                I2C_EXCEPTION_SEQUENCE,
+                AVTP_I2C_CODE_TR1,
+                AVTP_I2C_EXC_SEQUENCE_ERROR,
                 0
             );
 
@@ -394,8 +378,8 @@ static int process_full(
         if (ret != 0) {
             create_response(
                 request, response,
-                I2C_CODE_TR1,
-                I2C_EXCEPTION_NONE,
+                AVTP_I2C_CODE_TR1,
+                AVTP_I2C_EXC_NONE,
                 0
             );
             return 1;
@@ -408,8 +392,8 @@ static int process_full(
         if (Avtp_I2C_IsTrr(request)) {
             create_response(
                 request, response,
-                I2C_CODE_TR5,
-                I2C_EXCEPTION_NONE,
+                AVTP_I2C_CODE_TR5,
+                AVTP_I2C_EXC_NONE,
                 0
             );
             return 1;
@@ -419,7 +403,7 @@ static int process_full(
     }
 
     /* CR6: Read one byte and continue. */
-    if (code == I2C_CODE_CR6) {
+    if (code == AVTP_I2C_CODE_CR6) {
 
         if (current_transaction.address == BH1750_ADDR) {
 
@@ -430,8 +414,8 @@ static int process_full(
 
                 create_response(
                     request, response,
-                    I2C_CODE_TR1,
-                    I2C_EXCEPTION_SEQUENCE,
+                    AVTP_I2C_CODE_TR1,
+                    AVTP_I2C_EXC_SEQUENCE_ERROR,
                     0
                 );
 
@@ -445,8 +429,8 @@ static int process_full(
 
             create_response(
                 request, response,
-                I2C_CODE_TR3,
-                I2C_EXCEPTION_NONE,
+                AVTP_I2C_CODE_TR3,
+                AVTP_I2C_EXC_NONE,
                 read_data
             );
 
@@ -458,8 +442,8 @@ static int process_full(
 
             create_response(
                 request, response,
-                I2C_CODE_TR1,
-                I2C_EXCEPTION_SEQUENCE,
+                AVTP_I2C_CODE_TR1,
+                AVTP_I2C_EXC_SEQUENCE_ERROR,
                 0
             );
             return 1;
@@ -480,8 +464,8 @@ static int process_full(
 
             create_response(
                 request, response,
-                I2C_CODE_TR1,
-                I2C_EXCEPTION_NONE,
+                AVTP_I2C_CODE_TR1,
+                AVTP_I2C_EXC_NONE,
                 0
             );
 
@@ -492,8 +476,8 @@ static int process_full(
 
         create_response(
             request, response,
-            I2C_CODE_TR3,
-            I2C_EXCEPTION_NONE,
+            AVTP_I2C_CODE_TR3,
+            AVTP_I2C_EXC_NONE,
             read_data
         );
 
@@ -502,7 +486,7 @@ static int process_full(
     /* -------------------------------------------------
     * CR7: Read final byte, NACK and STOP.
     * ------------------------------------------------- */
-    if (code == I2C_CODE_CR7) {
+    if (code == AVTP_I2C_CODE_CR7) {
 
         if (current_transaction.address == BH1750_ADDR) {
 
@@ -511,8 +495,8 @@ static int process_full(
                 current_transaction.active = false;
                 create_response(
                     request, response,
-                    I2C_CODE_TR1,
-                    I2C_EXCEPTION_SEQUENCE,
+                    AVTP_I2C_CODE_TR1,
+                    AVTP_I2C_EXC_SEQUENCE_ERROR,
                     0
                 );
 
@@ -526,8 +510,8 @@ static int process_full(
 
             create_response(
                 request, response,
-                I2C_CODE_TR3,
-                I2C_EXCEPTION_NONE,
+                AVTP_I2C_CODE_TR3,
+                AVTP_I2C_EXC_NONE,
                 read_data
             );
 
@@ -538,8 +522,8 @@ static int process_full(
 
             create_response(
                 request, response,
-                I2C_CODE_TR1,
-                I2C_EXCEPTION_SEQUENCE,
+                AVTP_I2C_CODE_TR1,
+                AVTP_I2C_EXC_SEQUENCE_ERROR,
                 0
             );
 
@@ -561,8 +545,8 @@ static int process_full(
         if (ret != 0) {
             create_response(
                 request, response,
-                I2C_CODE_TR1,
-                I2C_EXCEPTION_NONE,
+                AVTP_I2C_CODE_TR1,
+                AVTP_I2C_EXC_NONE,
                 0
             );
 
@@ -572,8 +556,8 @@ static int process_full(
         /* TR3 returns the byte read from the FRAM. */
         create_response(
             request, response,
-            I2C_CODE_TR3,
-            I2C_EXCEPTION_NONE,
+            AVTP_I2C_CODE_TR3,
+            AVTP_I2C_EXC_NONE,
             read_data
         );
 
@@ -618,7 +602,7 @@ static int process_brief(
     /*
      * CR1: START and address the FRAM.
      */
-    if (code == I2C_CODE_CR1) {
+    if (code == AVTP_I2C_CODE_CR1) {
 
         uint8_t address_data =
             Avtp_I2CBrief_GetI2CData(request);
@@ -630,8 +614,8 @@ static int process_brief(
         if (address != FRAM_ADDR || read) {
             create_brief_response(
                 request, response,
-                I2C_CODE_TR1,
-                I2C_EXCEPTION_NONE,
+                AVTP_I2C_CODE_TR1,
+                AVTP_I2C_EXC_NONE,
                 0
             );
             return 0;
@@ -649,8 +633,8 @@ static int process_brief(
 
         create_brief_response(
             request, response,
-            I2C_CODE_TR2,
-            I2C_EXCEPTION_NONE,
+            AVTP_I2C_CODE_TR2,
+            AVTP_I2C_EXC_NONE,
             0
         );
 
@@ -667,8 +651,8 @@ static int process_brief(
 
         create_brief_response(
             request, response,
-            I2C_CODE_TR1,
-            I2C_EXCEPTION_SEQUENCE,
+            AVTP_I2C_CODE_TR1,
+            AVTP_I2C_EXC_SEQUENCE_ERROR,
             0
         );
 
@@ -678,7 +662,7 @@ static int process_brief(
     /*
      * CR3: Collect one write-data byte.
      */
-    if (code == I2C_CODE_CR3) {
+    if (code == AVTP_I2C_CODE_CR3) {
 
         if (current_transaction.write_length >=
             sizeof(current_transaction.write_data)) {
@@ -687,8 +671,8 @@ static int process_brief(
 
             create_brief_response(
                 request, response,
-                I2C_CODE_TR1,
-                I2C_EXCEPTION_SEQUENCE,
+                AVTP_I2C_CODE_TR1,
+                AVTP_I2C_EXC_SEQUENCE_ERROR,
                 0
             );
 
@@ -703,8 +687,8 @@ static int process_brief(
 
         create_brief_response(
             request, response,
-            I2C_CODE_TR2,
-            I2C_EXCEPTION_NONE,
+            AVTP_I2C_CODE_TR2,
+            AVTP_I2C_EXC_NONE,
             0
         );
 
@@ -714,7 +698,7 @@ static int process_brief(
     /* -------------------------------------------------
     * CR5: End write phase and restart with read address.
     * ------------------------------------------------- */
-    if (code == I2C_CODE_CR5) {
+    if (code == AVTP_I2C_CODE_CR5) {
 
         uint8_t address_data =
             Avtp_I2CBrief_GetI2CData(request);
@@ -731,8 +715,8 @@ static int process_brief(
 
             create_brief_response(
                 request, response,
-                I2C_CODE_TR1,
-                I2C_EXCEPTION_SEQUENCE,
+                AVTP_I2C_CODE_TR1,
+                AVTP_I2C_EXC_SEQUENCE_ERROR,
                 0
             );
 
@@ -743,8 +727,8 @@ static int process_brief(
 
         create_brief_response(
             request, response,
-            I2C_CODE_TR2,
-            I2C_EXCEPTION_NONE,
+            AVTP_I2C_CODE_TR2,
+            AVTP_I2C_EXC_NONE,
             0
         );
 
@@ -754,15 +738,15 @@ static int process_brief(
     /*
      * CR4: STOP and execute the physical FRAM write.
      */
-    if (code == I2C_CODE_CR4) {
+    if (code == AVTP_I2C_CODE_CR4) {
 
         if (current_transaction.write_length < 3) {
             current_transaction.active = false;
 
             create_brief_response(
                 request, response,
-                I2C_CODE_TR1,
-                I2C_EXCEPTION_SEQUENCE,
+                AVTP_I2C_CODE_TR1,
+                AVTP_I2C_EXC_SEQUENCE_ERROR,
                 0
             );
 
@@ -788,8 +772,8 @@ static int process_brief(
         if (ret != 0) {
             create_brief_response(
                 request, response,
-                I2C_CODE_TR1,
-                I2C_EXCEPTION_NONE,
+                AVTP_I2C_CODE_TR1,
+                AVTP_I2C_EXC_NONE,
                 0
             );
             return ret;
@@ -801,8 +785,8 @@ static int process_brief(
         if (Avtp_I2CBrief_IsTrr(request)) {
             create_brief_response(
                 request, response,
-                I2C_CODE_TR5,
-                I2C_EXCEPTION_NONE,
+                AVTP_I2C_CODE_TR5,
+                AVTP_I2C_EXC_NONE,
                 0
             );
         }
@@ -813,7 +797,7 @@ static int process_brief(
     /* -------------------------------------------------
     * CR7: Read final byte, NACK and STOP.
     * ------------------------------------------------- */
-    if (code == I2C_CODE_CR7) {
+    if (code == AVTP_I2C_CODE_CR7) {
 
         if (!current_transaction.read ||
             current_transaction.write_length < 2) {
@@ -822,8 +806,8 @@ static int process_brief(
 
             create_brief_response(
                 request, response,
-                I2C_CODE_TR1,
-                I2C_EXCEPTION_SEQUENCE,
+                AVTP_I2C_CODE_TR1,
+                AVTP_I2C_EXC_SEQUENCE_ERROR,
                 0
             );
 
@@ -852,8 +836,8 @@ static int process_brief(
 
             create_brief_response(
                 request, response,
-                I2C_CODE_TR1,
-                I2C_EXCEPTION_NONE,
+                AVTP_I2C_CODE_TR1,
+                AVTP_I2C_EXC_NONE,
                 0
             );
 
@@ -863,8 +847,8 @@ static int process_brief(
         /* TR3 returns the actual byte read from the FRAM. */
         create_brief_response(
             request, response,
-            I2C_CODE_TR3,
-            I2C_EXCEPTION_NONE,
+            AVTP_I2C_CODE_TR3,
+            AVTP_I2C_EXC_NONE,
             read_data
         );
 
