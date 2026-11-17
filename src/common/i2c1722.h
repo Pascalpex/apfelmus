@@ -13,6 +13,10 @@
 #include "avtp/acf/I2C.h"
 #include "avtp/CommonHeader.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define I2C1722_UDP_PORT 17220
 
 // Example values
@@ -54,3 +58,7 @@ int i2c_to_avtp(uint8_t *pdu, size_t pdu_size, int use_udp, uint8_t ntscf_versio
  */
 int avtp_to_i2c(const uint8_t *pdu, size_t pdu_length, int use_udp, uint64_t stream_id,
                 Avtp_I2C_t *msgs, uint8_t max_msgs, uint32_t *seq_num);
+
+#ifdef __cplusplus
+}
+#endif
