@@ -9,7 +9,7 @@
 #include <zephyr/posix/arpa/inet.h>
 #include <zephyr/posix/sys/socket.h>
 #include <zephyr/posix/unistd.h>
-#include "i2C_listener.h"
+#include "i2c_listener.h"
 
 #include "i2c1722.h"
 
