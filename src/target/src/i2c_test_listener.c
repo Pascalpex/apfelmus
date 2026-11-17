@@ -1,3 +1,14 @@
+/*
+ * Manual on-target tests for the ACF_I2C listener.
+ *
+ * A real MB85RC256V FRAM (0x50) and BH1750 (0x23) are needed on the I2C bus and print
+ * PASS/FAIL via printk. This file is currently not part of the build and none of the 
+ * test functions is called.
+ *
+ * The host unit tests in test/ use cmocka instead. These tests are meant to be moved
+ * there once the listener only talks to the bus through i2c_transfer().
+ */
+
 #include <zephyr/sys/printk.h>
 #include <string.h>
 
